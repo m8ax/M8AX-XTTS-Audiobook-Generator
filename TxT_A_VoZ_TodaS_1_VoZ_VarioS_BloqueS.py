@@ -11,12 +11,17 @@
 # El Audio Final, Con O Sin Música De Fondo, Se Generará En Formato OPUS Optimizado Con FFmpeg, Reduciendo Muchísimo El Tamaño Del WAV Original.
 # Compatible Tanto Con CPU Como Con GPU CUDA.
 # Incluye Métricas Avanzadas, Estadísticas Técnicas, Gráficas PRO, Detección De Posibles Glitches Y Monitorización Del Sistema.
-# Formato De Salida Del Fichero OPUS: M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo.opus.
-# Formato De Salida Del Fichero MP4: M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVideo.mp4.
-# Formato De Salida Del Fichero SRT: M8AX_Subtitulos_DD-MM-YYYY_HH-MM-SS.srt.
-# Formato De Salida Del Fichero De Gráficas: M8AX_Gráficas_DD-MM-YYYY_HH-MM-SS.webp.
-# Formato Temporal De Bloques WAV: MvIiIaX_Bloque_XXXXXX.wav.
-# Formato Temporal Del WAV De Unión Final: m8ax.wav.
+# Durante Todo El Proceso Se Generará Automáticamente El Fichero De Log "M8AX-LoG-XTTS.log".
+# El Log Se Guardará En Tiempo Real En Disco Duro Usando Modo APPEND, Conservando Procesos Anteriores.
+# El Fichero De Log Nunca Se Borrará Automáticamente Y Puede Crecer Muchísimo Con El Tiempo.
+# Si El Fichero "M8AX-LoG-XTTS.log" Ocupa Demasiado Espacio, Tendrás Que Borrarlo Manualmente.
+# Formato De Salida Del Fichero OPUS ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo.opus.
+# Formato De Salida Del Fichero MP4 ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVideo.mp4.
+# Formato De Salida Del Fichero SRT ➤ M8AX_Subtitulos_DD-MM-YYYY_HH-MM-SS.srt.
+# Formato De Salida Del Fichero De Gráficas ➤ M8AX_Gráficas_DD-MM-YYYY_HH-MM-SS.webp.
+# Formato Del Fichero De Log Permanente ➤ M8AX-LoG-XTTS.log.
+# Formato Temporal De Bloques WAV ➤ MvIiIaX_Bloque_XXXXXX.wav.
+# Formato Temporal Del WAV De Unión Final ➤ m8ax.wav.
 # Creado El 10/05/2026 A Las 00:00:00 En 85h De Programación.
 # By M8AX.
 
@@ -34,7 +39,16 @@ import psutil
 import shutil
 import ephem
 import time
+import sys
 import os
+
+def tamano_m8ax(fichero):
+    size = os.path.getsize(fichero) / (1024 * 1024)
+
+    if size >= 500:
+        return f"{size / 1024:.2f} GB"
+    else:
+        return f"{size:.2f} MB"
 
 def fuego_m8ax():
     os.system("cls")
@@ -506,7 +520,7 @@ stop_event = threading.Event()
 
 os.system("cls")
 
-print("... Cargando M8AX XTTS ...")
+print("... Cargando M8AX XTTS | Creador De AudioLibros ...")
 
 time.sleep(2)
 
@@ -516,7 +530,7 @@ os.system("cls")
 
 if not os.path.exists("m8ax.txt"):
     print(
-        "❌ Error: El Archivo 'm8ax.txt' No Se Encuentra En El Directorio Raíz Del Proyecto. 'm8ax.txt' Es El Texto Que Quieres Pasar A Voz..."
+        "❌ Error ➤ El Archivo 'm8ax.txt' No Se Encuentra En El Directorio Raíz Del Proyecto. 'm8ax.txt' Es El Texto Que Quieres Pasar A Voz..."
     )
     print(
         "👉 Asegúrate De Que El Archivo 'm8ax.txt' Esté En El Directorio Raíz Donde Se Ejecuta El Script."
@@ -524,12 +538,12 @@ if not os.path.exists("m8ax.txt"):
     exit()
 
 if not shutil.which("ffmpeg"):
-    print("❌ Error: FFmpeg No Está Instalado O No Está En PATH")
+    print("❌ Error ➤ FFmpeg No Está Instalado O No Está En PATH")
     print("👉 Instálalo Y Añádelo Al PATH Antes De Continuar...")
     exit()
 
 if not shutil.which("ffprobe"):
-    print("❌ Error: FFprobe No Está Instalado O No Está En PATH")
+    print("❌ Error ➤ FFprobe No Está Instalado O No Está En PATH")
     print("👉 Instálalo Y Añádelo Al PATH Antes De Continuar...")
     exit()
 
@@ -548,7 +562,7 @@ if opcion == "2":
     if torch.cuda.is_available():
         device = "cuda"
     else:
-        print("\n❌ ERROR: No Tienes GPU Compatible Con CUDA... Lo Siento :(")
+        print("\n❌ Error ➤ No Tienes GPU Compatible Con CUDA... Lo Siento :(")
         exit()
 elif opcion == "1":
     device = "cpu"
@@ -602,15 +616,28 @@ if usar_video:
 
     if mostrar_narrador:
         print(
-            f"\n---/// El Vídeo Se Generará Con Identificación Del Narrador \\\\\\---"
+            f"\n---/// El Vídeo Se Generará Con Identificación Del Narrador \\\\\\---\n\n--------------------------------------------------------------------------------"
         )
     else:
         print(
-            f"\n---/// El Vídeo Se Generará Sin Identificación Del Narrador \\\\\\---"
+            f"\n---/// El Vídeo Se Generará Sin Identificación Del Narrador \\\\\\---\n\n--------------------------------------------------------------------------------"
         )
+
+    print("\n----- ¿ Quieres Mostrar Un Vumetro En Pantalla ? -----\n")
+    print("1. ➤ Sí\n")
+    print("2. ➤ No\n")
+
+    opcion_vumeter = input("----- Selecciona Opción ----- ").strip()
+    mostrar_vumeter = opcion_vumeter == "1"
+
+    if mostrar_vumeter:
+        print("\n---/// El Vídeo Se Generará Con Vumetro En Pantalla \\\\\\---")
+    else:
+        print("\n---/// El Vídeo Se Generará Sin Vumetro En Pantalla \\\\\\---")
 
 else:
     mostrar_narrador = False
+    mostrar_vumeter = False
     print("\n---/// No Se Generará Vídeo MP4 \\\\\\---")
 
 time.sleep(5)
@@ -707,6 +734,56 @@ VOCES = [
 TXT_ENTRADA = "m8ax.txt"
 SALIDA_WAV = "m8ax.wav"
 
+class Tee:
+
+    def fileno(self):
+        return self.terminal.fileno()
+
+    def __init__(self, archivo):
+        self.terminal = sys.stdout
+        self.log = open(archivo, "a", encoding="utf-8", buffering=1)
+        self.ultima_ffmpeg = ""
+
+    def write(self, mensaje):
+        self.terminal.write(mensaje)
+
+        if "M8AX ... ESPERA ..." in mensaje:
+            return
+
+        limpio = mensaje
+
+        while "\033[" in limpio:
+            ini = limpio.find("\033[")
+            fin = limpio.find("m", ini)
+
+            if fin == -1:
+                break
+
+            limpio = limpio[:ini] + limpio[fin + 1 :]
+
+        limpio = limpio.replace("\r", "")
+
+        if "frame=" in limpio or "size=" in limpio:
+            self.ultima_ffmpeg = limpio.strip()
+            return
+
+        self.log.write(limpio)
+        self.log.flush()
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def guardar_ffmpeg_final(self):
+
+        if self.ultima_ffmpeg:
+            self.log.write(self.ultima_ffmpeg.strip())
+            self.log.flush()
+            self.ultima_ffmpeg = ""
+
+sys.stdout = Tee("M8AX-LoG-XTTS.log")
+sys.stderr = sys.stdout
+
 print(f"{'-'*175}\n")
 print(
     "--- Cargando Modelo XTTS ➤ ( Programado Por MarcoS OchoA DieZ - MvIiIaX.M8AX ) ---\n"
@@ -737,6 +814,19 @@ except:
 print(f"- Generando Audio Con Muestra(s) ➤ {', '.join(VOCES)}\n")
 print(f"- Usando {len(VOCES)} Muestra(s) De Voz\n")
 
+texto = texto.strip()
+
+if not texto:
+    texto = (
+        "El fichero de texto está vacío... "
+        "Haz el favor de ponerme un texto en condiciones."
+    )
+
+if texto.upper().endswith("FIN"):
+    texto += " del audiolibro por Eme viax, guión, Eme ocho a equis."
+else:
+    texto += "\n\nFin del audiolibro por Eme viax, guión, Eme ocho a equis."
+
 bloques = dividir_texto(texto)
 total_bloques = len(bloques)
 
@@ -751,7 +841,7 @@ if DEBUG:
             f.write(b + "\n\n")
 
     print(
-        "- Bloques Guardados En M8AX-Bloques_Debug.TxT Para Análisis. Al Terminar El Script Python, Te Preguntará Si Quieres Borrar El Fichero O No...\n"
+        "- Bloques Guardados En M8AX-Bloques_Debug.TxT Para Análisis. Al Terminar El Script Python, Se Te Preguntará Si Quieres Borrar El Fichero O No...\n"
     )
 
 print(f"- Texto Dividido En {total_bloques} Bloques")
@@ -983,7 +1073,10 @@ print(
 album_voces = ", ".join(voces_usadas)
 fecha_archivo = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
 SALIDA_OPUS = f"M8AX_{fecha_archivo}.opus"
-tamano = os.path.getsize(SALIDA_WAV) / (1024 * 1024)
+
+tamano = (
+    os.path.getsize(SALIDA_WAV) / (1024 * 1024) if os.path.exists(SALIDA_WAV) else 0
+)
 
 if usar_musica:
     nombre_fondo = os.path.splitext(os.path.basename(ruta_musica))[0]
@@ -1053,7 +1146,7 @@ if usar_musica:
         "-metadata",
         "composer=M8AX - The Algorithm Man - M8AX",
         "-metadata",
-        "Lema_M8AX=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galáxia...",
+        "Lema_M8AX=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galaxia... | El Miedo Es El Camino Hacia El Lado Oscuro, El Miedo Lleva A La Ira, La Ira Lleva Al Odio, El Odio Lleva Al Sufrimiento... | Yo He Visto Cosas Que Vosotros No Creeríais. Atacar Naves En Llamas Más Allá De Orión. He Visto Rayos-C Brillar En La Oscuridad Cerca De La Puerta De Tannhäuser. Todos Esos Momentos Se Perderán En El Tiempo, Como Lágrimas En La Lluvia. Es Hora De Morir... | AudioLibro Compilado En Honor A MDDD...",
         SALIDA_OPUS,
     ]
 
@@ -1113,17 +1206,40 @@ else:
         "-metadata",
         "composer=M8AX - The Algorithm Man - M8AX",
         "-metadata",
-        "Lema_M8AX=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galáxia...",
+        "Lema_M8AX=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galaxia... | El Miedo Es El Camino Hacia El Lado Oscuro, El Miedo Lleva A La Ira, La Ira Lleva Al Odio, El Odio Lleva Al Sufrimiento... | Yo He Visto Cosas Que Vosotros No Creeríais. Atacar Naves En Llamas Más Allá De Orión. He Visto Rayos-C Brillar En La Oscuridad Cerca De La Puerta De Tannhäuser. Todos Esos Momentos Se Perderán En El Tiempo, Como Lágrimas En La Lluvia. Es Hora De Morir... | AudioLibro Compilado En Honor A MDDD...",
         SALIDA_OPUS,
     ]
 
-res = subprocess.run(cmd)
+res = subprocess.Popen(
+    cmd,
+    stderr=subprocess.PIPE,
+    stdout=subprocess.DEVNULL,
+    text=True,
+    bufsize=1,
+)
+
+ultima_linea_ffmpeg = ""
+
+while True:
+    linea = res.stderr.readline()
+
+    if not linea:
+        break
+
+    if "frame=" in linea or "size=" in linea:
+        ultima_linea_ffmpeg = linea.strip()
+        print(f"\r{ultima_linea_ffmpeg}", end="", flush=True)
+    else:
+        print(linea, end="", flush=True)
+
+res.wait()
+sys.stdout.guardar_ffmpeg_final()
 
 if res.returncode != 0:
     print("\n- Error En FFmpeg, No Se Borrarán Los Ficheros WAV", flush=True)
     exit()
 
-print(f"\n- Archivo OPUS Creado ➤ {SALIDA_OPUS}", flush=True)
+print(f"\n\n- Archivo OPUS Creado ➤ {SALIDA_OPUS}", flush=True)
 
 if not os.path.exists(SALIDA_OPUS):
     print("\n- El Fichero OPUS No Existe, Cancelando Limpieza", flush=True)
@@ -1399,13 +1515,17 @@ SRT_SALIDA = f"M8AX_Subtitulos_{fecha_archivo}.srt"
 
 with open(SRT_SALIDA, "w", encoding="utf-8") as srt:
 
-    for num, inicio_sub, fin_sub, texto_sub in subtitulos_srt:
+    for idx, (num, inicio_sub, fin_sub, texto_sub) in enumerate(subtitulos_srt):
+
+        if idx == len(subtitulos_srt) - 1:
+            continue
+
         srt.write(f"{num}\n")
         srt.write(f"{tiempo_srt(inicio_sub)} --> {tiempo_srt(fin_sub)}\n")
         srt.write(f"{texto_sub}\n\n")
 
 print(
-    f"- Fichero SRT De Subtítulos Generado ➤ {SRT_SALIDA} - ( Compatible Con YouTube, VLC, MP4 Y FFmpeg )\n"
+    f"- Fichero SRT De Subtítulos Generado ➤ {SRT_SALIDA} - ( Compatible Con YouTube, VLC, Media Player, FFmpeg, Etc... )\n"
 )
 
 nombre_grafica = generar_graficas_pro(
@@ -1429,7 +1549,7 @@ if usar_video:
 
             inicio = subtitulos_srt[idx][1]
 
-            if voz != voz_anterior:
+            if voz != voz_anterior and idx != len(subtitulos_srt) - 1:
 
                 eventos_voces.append(
                     {
@@ -1457,9 +1577,11 @@ if usar_video:
 
     encoders = [
         ("hevc_nvenc", ["-preset", "p5"]),
+        ("h264_nvenc", ["-preset", "p5"]),
+        ("hevc_qsv", ["-preset", "fast"]),
         ("h264_qsv", ["-preset", "fast"]),
         ("hevc_amf", ["-quality", "balanced"]),
-        ("libx264", ["-preset", "medium"]),
+        ("libx265", ["-preset", "medium"]),
     ]
 
     encoder_video = "libx264"
@@ -1492,11 +1614,6 @@ if usar_video:
             args_encoder = args
             print(f"- Encoder Compatible Detectado ➤ {encoder_video}\n")
             break
-
-    if encoder_video == "libx264":
-        calidad_args = ["-crf", "21"]
-    else:
-        calidad_args = ["-cq", "21"]
 
     num_logo = random.randint(1, 5)
     logo_m8ax = os.path.join("M8AX-Logos", f"M8AX-{num_logo}.png")
@@ -1536,7 +1653,154 @@ if usar_video:
     else:
         filtro_voces = ""
 
+    ultimo_inicio = subtitulos_srt[-1][1]
+    ultimo_fin = subtitulos_srt[-1][2]
+
+    r = random.randint(50, 255)
+    g = random.randint(50, 255)
+    b = random.randint(50, 255)
+
+    drawtext_final = (
+        f"drawtext="
+        f"text='FIN   DEL\nAUDIOLIBRO\nPOR   MvIiIaX - M8AX':"
+        f"fontcolor=#{r:02X}{g:02X}{b:02X}:"
+        f"fontsize=150:"
+        f"fontfile='C\\:/Windows/Fonts/segoeui.ttf':"
+        f"x=(w-text_w)/2:"
+        f"y=(h-text_h)/2:"
+        f"borderw=4:"
+        f"bordercolor=black@0.9:"
+        f"shadowx=6:"
+        f"shadowy=6:"
+        f"shadowcolor=black@0.9:"
+        f"alpha='if(lt(t,{ultimo_inicio}),0,"
+        f"if(lt(t,{ultimo_fin}),1,0))'"
+    )
+
+    visualizador = random.choice(
+        [
+            "avectorscope",
+            "showwaves",
+            "showspectrum",
+            "barras",
+            "waveform",
+        ]
+    )
+
+    if mostrar_vumeter:
+        print(
+            f"- Vumetro En Pantalla ➤ ON | Visualizador ➤ {visualizador.capitalize()}\n"
+        )
+
+    print(
+        f"- Nombre Del Narrador En El Video ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
+    )
+
+    r = random.randint(80, 255)
+    g = random.randint(80, 255)
+    b = random.randint(80, 255)
+
+    if visualizador == "avectorscope":
+
+        filtro_visual = (
+            f"[1:a]avectorscope="
+            f"s=360x180:"
+            f"draw=line:"
+            f"rc={r}:"
+            f"gc={g}:"
+            f"bc={b}"
+            f"[vu];"
+        )
+
+    elif visualizador == "showwaves":
+
+        color_wave = random.choice(
+            [
+                "cyan",
+                "lime",
+                "yellow",
+                "orange",
+                "red",
+                "magenta",
+                "white",
+            ]
+        )
+
+        filtro_visual = (
+            f"[1:a]showwaves="
+            f"s=360x180:"
+            f"mode=cline:"
+            f"colors={color_wave}"
+            f"[vu];"
+        )
+
+    elif visualizador == "barras":
+
+        filtro_visual = (
+            f"[1:a]showfreqs="
+            f"s=360x180:"
+            f"mode=bar:"
+            f"fscale=log:"
+            f"ascale=log:"
+            f"win_size=2048:"
+            f"overlap=0.85:"
+            f"[vu];"
+        )
+
+    elif visualizador == "waveform":
+
+        color_wave = random.choice(
+            [
+                "white",
+                "cyan",
+                "lime",
+                "yellow",
+                "orange",
+            ]
+        )
+
+        filtro_visual = (
+            f"[1:a]showwaves="
+            f"s=360x180:"
+            f"mode=line:"
+            f"colors={color_wave}:"
+            f"scale=lin:"
+            f"rate=30"
+            f"[vu];"
+        )
+
+    else:
+
+        filtro_visual = (
+            f"[1:a]showspectrum="
+            f"s=360x180:"
+            f"mode=combined:"
+            f"color=rainbow:"
+            f"slide=scroll"
+            f"[vu];"
+        )
+
     filtro_completo = (
+        f"{filtro_visual}"
+        f"[0:v]subtitles='{SRT_FFMPEG}':"
+        f"force_style='FontName=Segoe UI,FontSize=21,"
+        f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
+        f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=20'"
+        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final}"
+        f"[sub];"
+        f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo];"
+        f"[sub]drawbox="
+        f"x=iw-590:"
+        f"y=30:"
+        f"w=370:"
+        f"h=190:"
+        f"color=#{r:02X}{g:02X}{b:02X}@0.35:"
+        f"t=1[box];"
+        f"[box][vu]overlay=W-w-224:36[tmp];"
+        f"[tmp][logo]overlay=W-w-25:36:format=auto[v]"
+    )
+
+    filtro_completo_sinvu = (
         f"[0:v]subtitles='{SRT_FFMPEG}':"
         f"force_style='FontName=Segoe UI,FontSize=21,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
@@ -1547,8 +1811,15 @@ if usar_video:
         f"[sub][logo]overlay=W-w-25:25:format=auto[v]"
     )
 
+    filtro_final = ""
+
+    if mostrar_vumeter:
+        filtro_final = filtro_completo
+    else:
+        filtro_final = filtro_completo_sinvu
+
     with open("M8AX_Filtro_Complejo.TxT", "w", encoding="utf-8") as f:
-        f.write(filtro_completo)
+        f.write(filtro_final)
 
     cmd_video = [
         "ffmpeg",
@@ -1581,7 +1852,6 @@ if usar_video:
         "-bufsize",
         "4000k",
         *args_encoder,
-        *calidad_args,
         "-pix_fmt",
         "yuv420p",
         "-c:a",
@@ -1602,7 +1872,7 @@ if usar_video:
         "-metadata",
         f"description={'No Hay Música De Fondo | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Mono' if not usar_musica else f'Fondo Musical ➤ {os.path.basename(ruta_musica)} | Volumen Base ➤ 0.15 | Reducción Automática ( Ducking ) ➤ Activado | Umbral ➤ 0.03 | Intensidad ➤ 5 | Ataque ➤ 40ms | Recuperación ➤ 400ms | Voz ➤ Mono A Estéreo ( Centrada ) | Mezcla ➤ amix | Duración Final ➤ Igual A La Voz | Música En Bucle ➤ Sí | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Estéreo'}",
         "-metadata",
-        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | Narrador En Pantalla ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec Vídeo ➤ {encoder_video} | Calidad ➤ 21 | Pixel Format ➤ yuv420p",
+        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
         "-metadata",
         "genre=--- M8AX XTTS VoZ ---",
         "-metadata",
@@ -1618,11 +1888,34 @@ if usar_video:
         "-metadata",
         "composer=M8AX - The Algorithm Man - M8AX",
         "-metadata",
-        "lyrics=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galáxia...",
+        "lyrics=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galaxia... | El Miedo Es El Camino Hacia El Lado Oscuro, El Miedo Lleva A La Ira, La Ira Lleva Al Odio, El Odio Lleva Al Sufrimiento... | Yo He Visto Cosas Que Vosotros No Creeríais. Atacar Naves En Llamas Más Allá De Orión. He Visto Rayos-C Brillar En La Oscuridad Cerca De La Puerta De Tannhäuser. Todos Esos Momentos Se Perderán En El Tiempo, Como Lágrimas En La Lluvia. Es Hora De Morir... | AudioLibro Compilado En Honor A MDDD...",
         SALIDA_MP4,
     ]
 
-    res_video = subprocess.run(cmd_video)
+    res_video = subprocess.Popen(
+        cmd_video,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
+
+    ultima_linea_ffmpeg = ""
+
+    while True:
+        linea = res_video.stderr.readline()
+
+        if not linea:
+            break
+
+        if "frame=" in linea or "size=" in linea:
+            ultima_linea_ffmpeg = linea.strip()
+            print(f"\r{ultima_linea_ffmpeg}", end="", flush=True)
+        else:
+            print(linea, end="", flush=True)
+
+    res_video.wait()
+    sys.stdout.guardar_ffmpeg_final()
 
     if res_video.returncode == 0:
         estado_narrador = (
@@ -1632,7 +1925,7 @@ if usar_video:
         )
 
         print(
-            f"\n- Vídeo MP4 Generado Correctamente ➤ {SALIDA_MP4} | {estado_narrador}\n"
+            f"\n\n- Vídeo MP4 Generado Correctamente ➤ {SALIDA_MP4} | {estado_narrador}\n"
         )
     else:
         print("\n- Error Generando El Vídeo MP4\n")
@@ -1662,8 +1955,11 @@ if os.path.exists("M8AX-Bloques_Debug.TxT"):
     )
     print("1. ➤ Sí\n")
     print("2. ➤ No\n")
+    print("----- Selecciona Opción ----- ", end="", flush=True)
 
-    opcion_debug = input("----- Selecciona Opción ----- ").strip()
+    opcion_debug = input().strip()
+    sys.stdout.log.write("\n")
+    sys.stdout.log.flush()
 
     if opcion_debug == "1":
         try:
@@ -1676,19 +1972,40 @@ if os.path.exists("M8AX-Bloques_Debug.TxT"):
 
 print(f"{'-'*175}\n")
 print("- ¡ Listo, Trabajo Realizado !\n")
-print(f"- Archivo Final De Audio OPUS ➤ {SALIDA_OPUS}\n")
+print(
+    f"- Archivo Final De Audio OPUS ➤ {SALIDA_OPUS} - ( {tamano_m8ax(SALIDA_OPUS)} )\n"
+)
 
 if usar_video:
-    print(f"- Fichero Del Vídeo Final ➤ {SALIDA_MP4}\n")
+    print(f"- Fichero Del Vídeo Final ➤ {SALIDA_MP4} - ( {tamano_m8ax(SALIDA_MP4)} )\n")
 
-print(f"- Fichero SRT De Subtítulos ➤ {SRT_SALIDA}\n")
+if os.path.exists(SRT_SALIDA):
+    print(
+        f"- Fichero SRT De Subtítulos ➤ {SRT_SALIDA} - ( {tamano_m8ax(SRT_SALIDA)} )\n"
+    )
+else:
+    print("- No Se Generó El Fichero SRT De Subtítulos\n")
 
 if nombre_grafica:
-    print(f"- Fichero De Gráficas PRO ➤ {nombre_grafica}\n")
+    print(
+        f"- Fichero De Gráficas PRO ➤ {nombre_grafica} - ( {tamano_m8ax(nombre_grafica)} )\n"
+    )
 else:
     print("- No Se Generaron Gráficas PRO\n")
 
-print(f"- YouTube Channel ➤ https://youtube.com/m8ax\n")
+if os.path.exists("M8AX-LoG-XTTS.log"):
+    print(
+        f"- Fichero De Log ➤ M8AX-LoG-XTTS.log - ( {tamano_m8ax('M8AX-LoG-XTTS.log')} )\n"
+    )
+else:
+    print("- No Se Generó El Fichero De Log\n")
+
 print(f"{'-'*175}\n")
-print(f"- ... By M8AX ...")
+
+luna_final_log = ephem.Moon()
+luna_final_log.compute()
+
+print(f"- {fecha_espanol()} - ( Luna Visible ➤ {luna_final_log.phase:.2f}% )")
+print(f"\n- YouTube Channel ➤ https://youtube.com/m8ax")
+print(f"\n- ... By M8AX ...")
 print(f"\n{'-'*175}")
