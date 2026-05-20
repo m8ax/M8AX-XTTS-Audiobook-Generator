@@ -2,9 +2,9 @@
 # ( Puedes Grabar Un WAV Con Tu Voz Y El Fichero Final Generado En Formato OPUS, Imitará Tu Voz Diciendo El Texto Del Fichero M8AX.TXT ).
 # Se Usarán Todas Las Muestras WAV Disponibles En M8AX-Voces.
 # Al Final Se Generará Una Gráfica Con Métricas Y Estadísticas Varias.
-# También Se Puede Generar Un Vídeo MP4 Con Subtítulos Integrados Automáticamente Y Narrador En Pantalla ON O OFF.
+# También Se Puede Generar Un Vídeo MP4 Con Subtítulos Integrados Automáticamente, Narrador Activo En El Vídeo ON - OFF Y Vumetros Varios.
 # Los Subtítulos Se Incrustarán Directamente En El Vídeo Final MP4.
-# El Vídeo De Fondo Será Seleccionado Aleatoriamente Desde La Carpeta "M8AX-Video_Subtítulos".
+# El Vídeo De Fondo Será Seleccionado Aleatoriamente Desde La Carpeta "M8AX-Vídeo_Subtítulos".
 # Los Subtítulos En Formato SRT Siempre Se Generarán Automáticamente, Incluso Aunque No Se Cree El Vídeo MP4.
 # El Fichero SRT Generado Será Compatible Con YouTube, VLC, FFmpeg, Editores De Vídeo Y Otros Programas Externos.
 # Puedes Utilizar El Fichero SRT Para Crear Tus Propios Vídeos, Añadir Efectos, Editar Subtítulos O Hacer Montajes Personalizados.
@@ -16,7 +16,12 @@
 # El Fichero De Log Nunca Se Borrará Automáticamente Y Puede Crecer Muchísimo Con El Tiempo.
 # Si El Fichero "M8AX-LoG-XTTS.log" Ocupa Demasiado Espacio, Tendrás Que Borrarlo Manualmente.
 # Formato De Salida Del Fichero OPUS ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo.opus.
-# Formato De Salida Del Fichero MP4 ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVideo.mp4.
+# Formato De Salida Del Fichero MP4 ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVídeo.mp4.
+# Si El Vídeo Final Supera El Límite Configurado En SEGUNDOS_SEGMENTO, El MP4 Se Dividirá Automáticamente En Varias Partes.
+# Formato Multipartes MP4 ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVídeo_Parte_XXX.mp4.
+# Cuando Existan Varias Partes, Se Generará Automáticamente Una Playlist M3U Compatible Con VLC, Media Player, MPC-HC, PotPlayer Y Otros Reproductores.
+# Formato De La Playlist Multipartes M3U ➤ M8AX_DD-MM-YYYY_HH-MM-SS_NombreFondo_NombreVídeo_PlayList.m3u.
+# Actualmente SEGUNDOS_SEGMENTO Está Configurado A 41400 Segundos ( 11h 30m ) Para Poder Subir Las Partes A YouTube Sin Acercarse Al Límite Máximo De 12 Horas Por Vídeo.
 # Formato De Salida Del Fichero SRT ➤ M8AX_Subtitulos_DD-MM-YYYY_HH-MM-SS.srt.
 # Formato De Salida Del Fichero De Gráficas ➤ M8AX_Gráficas_DD-MM-YYYY_HH-MM-SS.webp.
 # Formato Del Fichero De Log Permanente ➤ M8AX-LoG-XTTS.log.
@@ -30,6 +35,9 @@ from TTS.api import TTS
 import subprocess
 import statistics
 import logging
+import cpuinfo
+import requests
+import contextlib
 import msvcrt
 import threading
 import torch
@@ -41,6 +49,19 @@ import ephem
 import time
 import sys
 import os
+
+def telegram_m8ax(mensaje):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage",
+            data={
+                "chat_id": CHAT_ID_TELEGRAM,
+                "text": mensaje,
+            },
+            timeout=10,
+        )
+    except:
+        pass
 
 def tamano_m8ax(fichero):
     size = os.path.getsize(fichero) / (1024 * 1024)
@@ -171,9 +192,7 @@ def fecha_espanol():
     dia = dias[ahora.weekday()]
     mes = meses[ahora.month - 1]
 
-    return (
-        f"{dia} {ahora.day:02d} De {mes} De {ahora.year} ➤ {ahora.strftime('%H:%M:%S')}"
-    )
+    return f"{dia}, {ahora.day:02d} De {mes} De {ahora.year} ➤ {ahora.strftime('%H:%M:%S')}"
 
 def generar_graficas_pro(
     duraciones,
@@ -381,6 +400,7 @@ def generar_graficas_pro(
         f"Bloques Totales ➤ {n_original} | Voces Distintas ➤ {len(voces_usadas)}\n"
         f"RTF ➤ {rtf:.2f}x ( Velocidad Real De Generación ) | Vel.Gen Media ➤ {media_vel_gen:.2f} Caract / Seg\n"
         f"Vel.Habla Media ➤ {media_vel_audio:.2f} Caract / Seg | Dur.Audio Media ➤ {media_dur_audio:.3f} Seg / Bloque"
+        f"\nHardware Usado ➤ {device_nombre}"
     )
 
     plt.figtext(0.5, 0.02, resumen, ha="center", fontsize=9)
@@ -389,7 +409,7 @@ def generar_graficas_pro(
     plt.figtext(
         0.995,
         0.01,
-        "M8AX © XTTS Engine",
+        f"M8AX © XTTS Engine - {datetime.now().year}",
         ha="right",
         va="bottom",
         fontsize=15,
@@ -456,6 +476,7 @@ def dividir_texto(texto, max_chars=220, min_chars=80, hard_limit=235):
             continue
 
         while len(linea) > max_chars:
+            bloque = None
             sub = linea[:max_chars]
             sub_ext = linea[:hard_limit]
 
@@ -487,10 +508,17 @@ def dividir_texto(texto, max_chars=220, min_chars=80, hard_limit=235):
 
                 if corte_alt != -1:
                     corte = corte_alt
+                    bloque = linea[:corte].rstrip() + ";"
                 else:
                     corte = max_chars - 1
+                    bloque = linea[: corte + 1].strip()
 
-            bloque = linea[: corte + 1].strip()
+            if bloque is None:
+
+                if linea[corte] == " ":
+                    bloque = linea[:corte].rstrip() + ";"
+                else:
+                    bloque = linea[: corte + 1].strip()
 
             if bloque:
                 bloques.append(bloque)
@@ -515,6 +543,7 @@ def formatear_tiempo(segundos):
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("TTS").setLevel(logging.DEBUG)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 stop_event = threading.Event()
 
@@ -549,9 +578,44 @@ if not shutil.which("ffprobe"):
 
 os.environ["TTS_HOME"] = r"C:\Utilidades-Pc\M8AX-IA\M8AX-TTS-M8AX\M8AX_TTS_Models"
 
+TOKEN_TELEGRAM = "PON AQUÍ TUS CREDENCIALES"
+CHAT_ID_TELEGRAM = "PON AQUÍ TUS CREDENCIALES"
+INTERVALO_TELEGRAM = 3600
+
 print(
     "========================== M8AX TTS ENGINE CON XTTS v2 ==========================\n"
 )
+
+LOG_M8AX_TEMP = "M8AX-LoG-XTTS.log"
+
+if os.path.exists(LOG_M8AX_TEMP):
+    tam_log = os.path.getsize(LOG_M8AX_TEMP) / (1024 * 1024)
+
+    if tam_log >= 10:
+        print(
+            f"----- El Fichero De Log Permanente ➤ {LOG_M8AX_TEMP} Ocupa Ya {tam_log:.2f} MB -----\n"
+        )
+        print("1. ➤ Borrar El Fichero De Log Y Empezar Limpio\n")
+        print("2. ➤ Conservar El Fichero De Log Y Seguir Acumulando Datos\n")
+        print("----- Selecciona Opción ----- ", end="")
+
+        opcion_log = input().strip()
+
+        if opcion_log == "1":
+            try:
+                os.remove(LOG_M8AX_TEMP)
+                print(
+                    f"\n---/// Fichero De Log Eliminado Correctamente ➤ {LOG_M8AX_TEMP} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
+                )
+            except Exception as e:
+                print(
+                    f"\n---/// Error Al Borrar El Fichero De Log ➤ {e} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
+                )
+        else:
+            print(
+                "\n---/// El Fichero De Log Se Mantendrá Y Seguirá Creciendo... \\\\\\---\n\n--------------------------------------------------------------------------------\n"
+            )
+
 print("----- ¿ Quieres Usar CPU O GPU ? -----\n")
 print("1. ➤ Usa La CPU\n")
 print("2. ➤ Usa La GPU\n")
@@ -561,18 +625,50 @@ opcion = input("----- Selecciona Opción ----- ").strip()
 if opcion == "2":
     if torch.cuda.is_available():
         device = "cuda"
+        device_nombre = f"GPU - {torch.cuda.get_device_name(0)}"
     else:
         print("\n❌ Error ➤ No Tienes GPU Compatible Con CUDA... Lo Siento :(")
         exit()
 elif opcion == "1":
     device = "cpu"
+    device_nombre = f"CPU - {cpuinfo.get_cpu_info()['brand_raw']}"
 else:
     print("\n⚠️ Opción Inválida, Usando La CPU Por Defecto...")
     device = "cpu"
+    device_nombre = f"CPU - {cpuinfo.get_cpu_info()['brand_raw']}"
+
+device_nombre_corto = "GPU" if device == "cuda" else "CPU"
+
+device_nombre_ffmpeg = " ".join(
+    device_nombre.replace("(R)", "")
+    .replace("(TM)", "")
+    .replace("\\", " ")
+    .replace(":", " ")
+    .replace("%", " ")
+    .replace("'", " ")
+    .replace('"', " ")
+    .replace(",", " ")
+    .replace("[", " ")
+    .replace("]", " ")
+    .replace(";", " ")
+    .replace("@", " ")
+    .replace("|", " ")
+    .replace("=", " ")
+    .replace("(", " ")
+    .replace(")", " ")
+    .replace("{", " ")
+    .replace("}", " ")
+    .replace("➤", " ")
+    .split()
+)
 
 print(
-    f"\n---/// Usando ➤ {device.upper()} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
+    f"\n---/// Usando ➤ {device_nombre} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
 )
+
+titulocmd = f"M8AX XTTS ENGINE v2 ➤ {device_nombre}"
+
+os.system(f"title {titulocmd}")
 
 print("----- ¿ Quieres Música De Fondo ? -----\n")
 print("1. ➤ Sí\n")
@@ -583,7 +679,7 @@ usar_musica = opcion_musica == "1"
 ruta_musica = None
 
 if usar_musica:
-    num = random.randint(1, 15)
+    num = random.randint(1, 16)
     ruta_musica = os.path.join("M8AX-Música_Fondo", f"MúsicaFondo{num}.mp3")
     print(
         f"\n---/// Música Seleccionada ➤ {os.path.basename(ruta_musica)} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
@@ -606,7 +702,7 @@ if usar_video:
         "\n---/// Se Generará Un Vídeo MP4 Con Subtítulos Integrados \\\\\\---\n\n--------------------------------------------------------------------------------\n"
     )
     print(
-        "----- ¿ Quieres Mostrar El Narrador En Pantalla Cuando Cambie La Voz ? -----\n"
+        "----- ¿ Quieres Mostrar El Narrador En El Vídeo Cuando Cambie La Voz ? -----\n"
     )
     print("1. ➤ Sí\n")
     print("2. ➤ No\n")
@@ -623,7 +719,7 @@ if usar_video:
             f"\n---/// El Vídeo Se Generará Sin Identificación Del Narrador \\\\\\---\n\n--------------------------------------------------------------------------------"
         )
 
-    print("\n----- ¿ Quieres Mostrar Un Vumetro En Pantalla ? -----\n")
+    print("\n----- ¿ Quieres Mostrar Un Vumetro En El Vídeo ? -----\n")
     print("1. ➤ Sí\n")
     print("2. ➤ No\n")
 
@@ -631,9 +727,9 @@ if usar_video:
     mostrar_vumeter = opcion_vumeter == "1"
 
     if mostrar_vumeter:
-        print("\n---/// El Vídeo Se Generará Con Vumetro En Pantalla \\\\\\---")
+        print("\n---/// El Vídeo Se Generará Con Vumetro \\\\\\---")
     else:
-        print("\n---/// El Vídeo Se Generará Sin Vumetro En Pantalla \\\\\\---")
+        print("\n---/// El Vídeo Se Generará Sin Vumetro \\\\\\---")
 
 else:
     mostrar_narrador = False
@@ -785,15 +881,16 @@ sys.stdout = Tee("M8AX-LoG-XTTS.log")
 sys.stderr = sys.stdout
 
 print(f"{'-'*175}\n")
+
 print(
-    "--- Cargando Modelo XTTS ➤ ( Programado Por MarcoS OchoA DieZ - MvIiIaX.M8AX ) ---\n"
+    f"--- Cargando Modelo XTTS En RAM, Usando {device_nombre} ➤ ( Programado Por MarcoS OchoA DieZ - MvIiIaX.M8AX ) ---\n"
 )
+
 print(f"{'-'*175}\n")
 
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
 print(f"\n{'-'*175}")
-
 print(f"\n- Leyendo Texto Desde ➤ {TXT_ENTRADA}\n")
 
 try:
@@ -822,10 +919,18 @@ if not texto:
         "Haz el favor de ponerme un texto en condiciones."
     )
 
-if texto.upper().endswith("FIN"):
-    texto += " del audiolibro por Eme viax, guión, Eme ocho a equis."
+if texto.strip().upper().rstrip(".!?").endswith("FIN"):
+    texto += (
+        f" del audiolibro por Eme viax, guión, Eme ocho a equis. "
+        f"Procesado usando {device_nombre_ffmpeg}. "
+        "En honor a EMEDEDEDEDE. Mi madre."
+    )
 else:
-    texto += "\n\nFin del audiolibro por Eme viax, guión, Eme ocho a equis."
+    texto += (
+        f"\n\nFin del audiolibro por Eme viax, guión, Eme ocho a equis. "
+        f"Procesado usando {device_nombre_ffmpeg}. "
+        "En honor a EMEDEDEDEDE. Mi madre."
+    )
 
 bloques = dividir_texto(texto)
 total_bloques = len(bloques)
@@ -847,9 +952,13 @@ if DEBUG:
 print(f"- Texto Dividido En {total_bloques} Bloques")
 
 inicio = time.time()
+inicio2 = inicio
 luna_inicio = ephem.Moon()
 luna_inicio.compute()
 fecha_luna_inicio = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+momento_inicio_luna = ephem.now()
+edad_luna_inicio = momento_inicio_luna - ephem.previous_new_moon(momento_inicio_luna)
+distancia_inicio_km = luna_inicio.earth_distance * 149597870.7
 
 t = threading.Thread(target=aviso, args=(inicio,), daemon=True)
 t.start()
@@ -875,6 +984,7 @@ bloques_sospechosos_total = 0
 tam_wavs_total = 0
 subtitulos_srt = []
 chars_totales_actual = 0
+ultimo_telegram = time.time()
 
 for i, bloque in enumerate(bloques, 1):
 
@@ -986,6 +1096,8 @@ for i, bloque in enumerate(bloques, 1):
     restante_pct = 100 - progreso
     barra = "◼" * relleno + "◻" * (total_barra - relleno)
     luna.compute()
+    edad_luna = ephem.now() - ephem.previous_new_moon(ephem.now())
+    distancia_km = luna.earth_distance * 149597870.7
 
     if device == "cuda":
         vram_usada = torch.cuda.memory_allocated() / (1024**3)
@@ -1010,12 +1122,16 @@ for i, bloque in enumerate(bloques, 1):
 
     print(
         f"\n{'-'*175}\n\n"
-        f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% • • • • • • • • • • \033[0m\n\n"
+        f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% | Edad Lunar ➤ {edad_luna:.1f} Días | Distancia A Tierra ➤ {distancia_km:,.0f} KM • • • • • • • • • • \033[0m\n\n"
         f"\033[38;2;255;255;255m > PR ➤ {restante_pct:06.2f}% | {barra} | PC ➤ {progreso:06.2f}%\033[0m\n"
-        f"\033[38;2;255;0;255m > Bloque ➤ [{i:06d}/{total_bloques}] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
+        f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
         f"\033[38;2;0;255;255m > Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs | Tiempo Necesario Para Generar 1 Seg De Audio ➤ {rtf_bloque:.2f} Segs\n"
         f"\033[38;2;255;80;80m > Estado Del Bloque ➤ {estado_bloque}\033[0m\n"
         f"\033[38;2;255;120;120m > Bloques Sospechosos Detectados ➤ {bloques_sospechosos_total}\033[0m\n"
+        f"\033[38;2;180;90;255m > Bloques Por Segundo ➤ {(len(archivos) / (time.time() - inicio) if (time.time() - inicio) > 0 else 0):.5f}\033[0m\n"
+        f"\033[38;2;0;255;180m > Bloques Por Minuto ➤ {(len(archivos) / (time.time() - inicio) * 60 if (time.time() - inicio) > 0 else 0):.2f}\033[0m\n"
+        f"\033[38;2;255;90;180m > Bloques Por Hora ➤ {(len(archivos) / (time.time() - inicio) * 3600 if (time.time() - inicio) > 0 else 0):.2f}\033[0m\n"
+        f"\033[38;2;120;255;40m > Bloques Por Semana ➤ {(len(archivos) / (time.time() - inicio) * 604800 if (time.time() - inicio) > 0 else 0):.2f}\033[0m\n"
         f"\033[38;2;0;255;120m > Voz ➤ {os.path.basename(voz_actual)}\033[0m\n"
         f"\033[38;2;255;180;0m > Audio Total Generado ➤ {formatear_tiempo(audio_total_actual)}\033[0m\n"
         f"\033[38;2;255;120;255m > WAV Actual ➤ {tam_wav_actual:.2f} MB | WAVS Totales ➤ {tam_wavs_total:.2f} MB\033[0m\n"
@@ -1023,13 +1139,66 @@ for i, bloque in enumerate(bloques, 1):
         f"\033[38;2;120;255;120m > Caracteres Totales Procesados ➤ {chars_totales_actual:,}\033[0m\n"
         f"\033[38;2;255;50;50m > Velocidad De Habla ➤ {velocidad:.2f} Caract / Seg | Velocidad De Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg\033[0m\n"
         f"\033[38;2;0;200;255m > Inicio ➤ {formatear_tiempo(inicio_real)} | Fin ➤ {formatear_tiempo(fin_real)}\033[0m\n"
-        f"\033[38;2;0;120;255m > Cores ➤ [{cores_str}]\n"
+        f"\033[38;2;140;220;255m > Hardware ➤ {device_nombre}\033[0m\n"
+        f"\033[38;2;0;120;255m > Cores ➤ [{cores_str}]\033[0m\n"
         f"\033[38;2;255;140;0m > CPU ( Avg ) ➤ {cpu_avg:.1f}% | Core ( Máx ) ➤ {core_max:.1f}% | RAM ➤ {ram_usada:.2f} GB / {ram_total:.2f} GB ➤ ( {ram_pct:.2f}% )\033[0m\n"
         f"{vram_texto}"
         f"\033[38;2;0;170;0m > Fichero Generado ➤ {nombre_salida}\033[0m\n\n"
         f"{'-'*175}\n",
         flush=True,
     )
+
+    if (
+        (time.time() - ultimo_telegram >= INTERVALO_TELEGRAM) or i == total_bloques
+    ) and (
+        TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
+        and CHAT_ID_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
+    ):
+
+        print("- Enviando Mensaje A Tu Telegram Con Estadísticas Del Bloque...\n")
+
+        telegram_m8ax(
+            f"{fecha_bloque}\n"
+            f"Luna Visible ➤ {luna.phase:.2f}%\n"
+            f"Edad Lunar ➤ {edad_luna:.1f} Días\n"
+            f"Distancia Tierra ➤ {distancia_km:,.0f} KM\n\n"
+            f"Texto Del Bloque ➤\n"
+            f'"{bloque}"\n\n'
+            f"P.Res ➤ {restante_pct:.2f}%\n"
+            f"P.Com ➤ {progreso:.2f}%\n\n"
+            f"Bloque ➤ [ {i:06d} / {total_bloques:06d} ]\n"
+            f"ETA ➤ {formatear_tiempo(eta)}\n\n"
+            f"Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs\n"
+            f"RTF ➤ {rtf_bloque:.2f}x\n\n"
+            f"Estado ➤ {estado_bloque}\n"
+            f"Bloques Sospechosos ➤ {bloques_sospechosos_total}\n"
+            f"Bloques Por Segundo ➤ {(len(archivos) / (time.time() - inicio) if (time.time() - inicio) > 0 else 0):.5f}\n"
+            f"Bloques Por Minuto ➤ {(len(archivos) / (time.time() - inicio) * 60 if (time.time() - inicio) > 0 else 0):.2f}\n"
+            f"Bloques Por Hora ➤ {(len(archivos) / (time.time() - inicio) * 3600 if (time.time() - inicio) > 0 else 0):.2f}\n"
+            f"Bloques Por Semana ➤ {(len(archivos) / (time.time() - inicio) * 604800 if (time.time() - inicio) > 0 else 0):.2f}\n\n"
+            f"Voz ➤ {os.path.basename(voz_actual)}\n"
+            f"Audio Total ➤ {formatear_tiempo(audio_total_actual)}\n\n"
+            f"WAV Actual ➤ {tam_wav_actual:.2f} MB\n"
+            f"WAVS Totales ➤ {tam_wavs_total:.2f} MB\n\n"
+            f"Caracteres ➤ {chars}\n"
+            f"Duración Audio ➤ {duracion_audio:.2f} Segs\n"
+            f"Caracteres Totales ➤ {chars_totales_actual:,}\n\n"
+            f"Vel.Habla ➤ {velocidad:.2f} Caract / Seg\n"
+            f"Vel.Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg\n\n"
+            f"Inicio ➤ {formatear_tiempo(inicio_real)}\n"
+            f"Fin ➤ {formatear_tiempo(fin_real)}\n\n"
+            f"Hardware ➤ {device_nombre}\n"
+            f"CPU Avg ➤ {cpu_avg:.1f}%\n"
+            f"Core Máx ➤ {core_max:.1f}%\n"
+            f"RAM ➤ {ram_usada:.2f} GB / {ram_total:.2f} GB ({ram_pct:.2f}%)\n\n"
+            + (
+                f"VRAM ➤ {vram_usada:.2f} GB / {vram_total:.2f} GB\n\n"
+                if device == "cuda"
+                else ""
+            )
+            + (f"Fichero ➤ {nombre_salida}\n\n")
+        )
+        ultimo_telegram = time.time()
 
 stop_event.set()
 
@@ -1065,13 +1234,16 @@ with wave.open(SALIDA_WAV, "wb") as salida:
                 salida.writeframes(b"\x00" * bytes_silencio)
 
 print(f"\n- Archivo Unido ➤ {SALIDA_WAV}", flush=True)
+
 print(
     "\n--- Convirtiendo De Formato WAV A OPUS, Para Que Ocupe Mucho Menos Espacio ---\n",
     flush=True,
 )
 
+tiempo_base_proceso = time.time() - inicio
 album_voces = ", ".join(voces_usadas)
 fecha_archivo = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+fecha_bonita_opus = fecha_espanol().replace(" ➤ ", " A Las ")
 SALIDA_OPUS = f"M8AX_{fecha_archivo}.opus"
 
 tamano = (
@@ -1130,7 +1302,7 @@ if usar_musica:
         "-metadata",
         f"date={fecha_archivo}",
         "-metadata",
-        "comment=Generado Por M8AX Con XTTS",
+        f"comment=Generado Por M8AX Con XTTS | Fecha ➤ {fecha_bonita_opus} | Procesado Automáticamente Usando ➤ {device_nombre} | Tiempo Total De Procesamiento ➤ {formatear_tiempo(tiempo_base_proceso)}",
         "-metadata",
         f"BG_Musical_De_Fondo=Fondo Musical ➤ {os.path.basename(ruta_musica)} | Volumen Base ➤ 0.15 | Reducción Automática ( Ducking ) ➤ Activado | Umbral ➤ 0.03 | Intensidad ➤ 5 | Ataque ➤ 40ms | Recuperación ➤ 400ms | Voz ➤ Mono A Estéreo ( Centrada ) | Mezcla ➤ amix | Duración Final ➤ Igual A La Voz | Música En Bucle ➤ Sí | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Estéreo",
         "-metadata",
@@ -1190,9 +1362,9 @@ else:
         "-metadata",
         f"date={fecha_archivo}",
         "-metadata",
-        "comment=Generado Por M8AX Con XTTS",
+        f"comment=Generado Por M8AX Con XTTS | Fecha ➤ {fecha_bonita_opus} | Procesado Automáticamente Usando ➤ {device_nombre} | Tiempo Total De Procesamiento ➤ {formatear_tiempo(tiempo_base_proceso)}",
         "-metadata",
-        f"BG_Musical_De_Fondo=No Hay Música De Fondo | Canales ➤ Mono",
+        f"BG_Musical_De_Fondo=No Hay Música De Fondo | Canales ➤ Mono | Opus 48kbps",
         "-metadata",
         "genre=--- M8AX XTTS VoZ ---",
         "-metadata",
@@ -1267,6 +1439,9 @@ duracion_proceso = fin - inicio
 luna_fin = ephem.Moon()
 luna_fin.compute()
 fecha_luna_fin = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+momento_fin_luna = ephem.now()
+edad_luna_fin = momento_fin_luna - ephem.previous_new_moon(momento_fin_luna)
+distancia_fin_km = luna_fin.earth_distance * 149597870.7
 
 probe_cmd = [
     "ffprobe",
@@ -1295,85 +1470,120 @@ comp = ((1 - (tamano_opus / tamano)) * 100) if tamano > 0 else 0
 ratio = (tamano / tamano_opus) if tamano_opus > 0 else 0
 rtf = duracion_proceso / duracion_opus if duracion_opus > 0 else 0
 eficiencia = duracion_opus / duracion_proceso if duracion_proceso > 0 else 0
+
 audio_por_minuto = (
     duracion_opus / (duracion_proceso / 60) if duracion_proceso > 0 else 0
 )
+
 tiempo_medio_bloque = sum(duraciones) / len(duraciones) if duraciones else 0
 bloques_por_seg = len(archivos) / duracion_proceso if duracion_proceso > 0 else 0
 total_pausas = sum(pausas) if pausas else 0
+
 media_audio = (
     (sum(duraciones_audio) + total_pausas) / len(duraciones_audio)
     if duraciones_audio
     else 0
 )
+
 bloques_raros = [d for d in duraciones_audio if d < 0.2 or d > 20]
 chars_por_seg_audio = total_chars / duracion_opus if duracion_opus > 0 else 0
 desviacion = statistics.stdev(duraciones_audio) if len(duraciones_audio) > 1 else 0
 media_chars = sum(chars_por_bloque) / len(chars_por_bloque) if chars_por_bloque else 0
 max_chars_b = max(chars_por_bloque) if chars_por_bloque else 0
 min_chars_b = min(chars_por_bloque) if chars_por_bloque else 0
+
 desviacion_chars = (
     statistics.stdev(chars_por_bloque) if len(chars_por_bloque) > 1 else 0
 )
+
 ratio_chars_audio = media_chars / media_audio if media_audio > 0 else 0
 max_duracion = max(duraciones_audio) if duraciones_audio else 0
 min_duracion = min(duraciones_audio) if duraciones_audio else 0
 tiempo_por_1000 = (duracion_proceso / total_chars) * 1000 if total_chars > 0 else 0
+
 porcentaje_sospechosos = (
     (len(bloques_raros) / len(archivos)) * 100 if len(archivos) > 0 else 0
 )
+
+porcentaje_fallidos = (
+    (len(bloques_fallidos) / total_bloques) * 100 if total_bloques > 0 else 0
+)
+
 duracion_xtts_total = sum(duraciones_audio)
 rtf_xtts = (fin_xtts - inicio) / duracion_xtts_total if duracion_xtts_total > 0 else 0
 
 print("\n--- MÉTRICAS ---\n")
+
 print(
-    f"- Inicio Del Procesamiento ➤ {fecha_luna_inicio} | Luna Visible ➤ {luna_inicio.phase:.2f}%\n"
+    f"- Inicio Del Procesamiento ➤ {fecha_luna_inicio} | "
+    f"Luna Visible ➤ {luna_inicio.phase:.2f}% | "
+    f"Edad Lunar ➤ {edad_luna_inicio:.1f} Días | "
+    f"Distancia A Tierra ➤ {distancia_inicio_km:,.0f} KM\n"
 )
+
 print(
-    f"- Fin Del Procesamiento ➤ {fecha_luna_fin} | Luna Visible ➤ {luna_fin.phase:.2f}%\n"
+    f"- Fin Del Procesamiento ➤ {fecha_luna_fin} | "
+    f"Luna Visible ➤ {luna_fin.phase:.2f}% | "
+    f"Edad Lunar ➤ {edad_luna_fin:.1f} Días | "
+    f"Distancia A Tierra ➤ {distancia_fin_km:,.0f} KM\n"
 )
+
 print(
     f"- Tiempo Total De Procesamiento ➤ {formatear_tiempo(duracion_proceso)} - ( {duracion_proceso:.2f} Segs )\n"
 )
+
 print(
     f"- Real-Time Factor ➤ {rtf:.2f}x - "
     f"( XTTS Necesita {rtf:.2f} Segundos Reales De Procesamiento Para Generar 1 Segundo De Audio )\n"
 )
+
 print(
     f"- Real-Time Factor XTTS Puro ➤ {rtf_xtts:.2f}x - "
     f"( Solo Incluye La Generación De Bloques XTTS, Sin FFmpeg Ni Procesos Finales )\n"
 )
+
 print(f"- Eficiencia De Generación ➤ {eficiencia:.2f} Segs Audio / Seg\n")
 print(f"- Rendimiento ➤ {audio_por_minuto:.2f} Segs Audio / Min\n")
 print(f"- Total Nº Bloques TXT ➤ {total_bloques}\n")
 print(f"- Total Nº Bloques Generados ➤ {len(archivos)}\n")
 print(f"- Bloques Por Segundo ➤ {bloques_por_seg:.5f}\n")
+print(f"- Bloques Por Minuto ➤ {bloques_por_seg * 60:.2f}\n")
+print(f"- Bloques Por Hora ➤ {bloques_por_seg * 3600:.2f}\n")
+print(f"- Bloques Por Semana ➤ {bloques_por_seg * 604800:.2f}\n")
 print(f"- Tiempo Medio De Procesado Por Bloque ➤ {tiempo_medio_bloque:.2f} Segs\n")
 print(f"- Duración Media De Cada Bloque De Audio ➤ {media_audio:.3f} Segs\n")
 print(f"- Caracteres Medios Por Bloque ➤ {media_chars:.2f}\n")
+
 print(
     f"- Variabilidad De Caracteres ➤ {desviacion_chars:.2f} - ( Entre {max(0, media_chars - desviacion_chars):.0f} Y {(media_chars + desviacion_chars):.0f} Caracteres )\n"
 )
+
 print(f"- Bloque Más Largo ( Texto ) ➤ {max_chars_b} Caracteres\n")
 print(f"- Bloque Más Corto ( Texto ) ➤ {min_chars_b} Caracteres\n")
+
 print(
     f"- Variabilidad De Duración ➤ {desviacion:.2f} Segs - ( Entre {max(0, media_audio - desviacion):.2f} Y {(media_audio + desviacion):.2f} Segs | Bajo < 2 = Fluido | Alto > 5 = Irregular )\n"
 )
+
 print(
     f"- Bloque Más Largo ( Duración ) ➤ {max_duracion:.2f} Segs - "
     f"( Puede Indicar Frases Demasiado Largas )\n"
 )
+
 print(
     f"- Bloque Más Corto ( Duración ) ➤ {min_duracion:.2f} Segs - "
     f"( Detecta Cortes Muy Pequeños O Posibles Glitches )\n"
 )
+
 print(
     f"- Total De Caracteres Originales ( TXT ) ➤ {len(texto)} - ( Incluye Saltos De Línea Y Formato Original )\n"
 )
+
 print(
     f"- Total De Caracteres Procesados ➤ {total_chars} - "
     f"( Cantidad Total De Texto Convertido A Voz )\n"
 )
+
 print(
     f"- Tiempo Por 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs - "
     f"( Velocidad Real De Generación, Ideal Para Comparar CPUs / GPUs )\n"
@@ -1386,9 +1596,15 @@ else:
     print(f"- Ningún Bloque Fallido - ( Generación Perfecta )\n")
 
 print(
+    f"- Porcentaje De Bloques Fallidos ➤ {porcentaje_fallidos:.2f}% - "
+    f"( Nivel De Bloques Que Han Fallado Durante La Generación )\n"
+)
+
+print(
     f"- Porcentaje De Bloques Sospechosos ➤ {porcentaje_sospechosos:.2f}% - "
     f"( Nivel De Problemas Detectados En El Audio )\n"
 )
+
 print(
     f"- Bloques Sospechosos Detectados ➤ {len(bloques_raros)} - ( Fragmentos Demasiado Cortos O Largos, Posibles Glitches O Errores De Voz )\n"
 )
@@ -1407,9 +1623,11 @@ for i in range(total_bloques):
 
     if d < 0.2 or d > 20:
         timestamp = formatear_tiempo(tiempo_acumulado)
+
         print(
             f"  · {contador} · Bloque Nº ➤ {i+1} | Duración ➤ {d:.2f} Segs | Posición ➤ {timestamp}\n"
         )
+
         print(f"    ↳ Texto ➤ {bloques[i]}\n")
         contador += 1
 
@@ -1423,6 +1641,7 @@ for i in range(total_bloques):
 print(
     f"- Velocidad De Habla ➤ {chars_por_seg_audio:.2f} Caract / Seg - ( Ritmo Al Que Se Pronuncia El Texto )\n"
 )
+
 print(
     f"- Voces Distintas Utilizadas ➤ {len(voces_usadas)} - ( Número Real De Voces Diferentes Usadas En Todo El Audio )\n"
 )
@@ -1448,6 +1667,7 @@ for v in voces_usadas:
     veces = conteo_voces.count(v)
     porcentaje = (veces / total) * 100 if total > 0 else 0
     tiempo_total = tiempo_por_voz.get(v, 0)
+
     print(
         f"  · {v} ➤ {veces}/{len(archivos)} Bloques Leídos | ( {porcentaje:.2f}% ) | {formatear_tiempo(tiempo_total)} - ( {tiempo_total:.2f} Segs ) Tiempo Leyendo"
     )
@@ -1455,14 +1675,19 @@ for v in voces_usadas:
 print(
     f"\n- Tiempo Total Hablado Por Todas Las Voces ➤ {sum(tiempo_por_voz.values()):.2f} Segs"
 )
+
 print(f"\n- Duración Total OPUS ➤ {duracion_opus:.2f} Segs")
+
 print(
     f"\n- Diferencia ➤ {abs(sum(tiempo_por_voz.values()) - duracion_opus):.2f} Segs - ( {'Excelente' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.02 else 'Muy Preciso' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.1 else 'Aceptable' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.5 else 'Descuadre Alto'} )\n"
 )
+
 print(f"- Velocidad De Generación De Texto ➤ {velocidad_chars:.2f} Caract / Seg\n")
+
 print(
     f"- Ratio Caracteres / Segundo Real De Audio ➤ {ratio_chars_audio:.2f} - ( Esta Métrica Indica La Cantidad De Caracteres Procesados Por Cada Segundo De Audio Generado )\n"
 )
+
 print(f"- Tamaño Del Fichero WAV ➤ {tamano:.2f} MB\n")
 print(f"- Tamaño Del Fichero OPUS ➤ {tamano_opus:.2f} MB\n")
 
@@ -1502,9 +1727,11 @@ else:
 print(
     f"- Tiempo Total De Pausas Entre Bloques ➤ {formatear_tiempo(total_pausas)} - ( {total_pausas:.2f} Segs )\n"
 )
+
 print(
     f"- Compresión WAV A OPUS ➤ {comp:.2f}% Menos Tamaño | {ratio:.2f}x Más Pequeño\n"
 )
+
 print(
     f"- Frecuencia Del Fichero OPUS ➤ {sample_rate} Hz | {bits} Bits | {canales_opus} Canal(es) | {bitrate} Kbps\n"
 )
@@ -1560,13 +1787,13 @@ if usar_video:
 
                 voz_anterior = voz
 
-    num_video = random.randint(1, 15)
-    video_fondo = os.path.join("M8AX-Video_Subtítulos", f"VideoFondo{num_video}.mp4")
+    num_video = random.randint(1, 50)
+    video_fondo = os.path.join("M8AX-Vídeo_Subtítulos", f"VídeoFondo{num_video}.mp4")
     nombre_video = os.path.splitext(os.path.basename(video_fondo))[0]
     SALIDA_MP4 = f"{os.path.splitext(SALIDA_OPUS)[0]}_{nombre_video}.mp4"
 
     print(
-        f"- Vídeo Seleccionado Como Fondo Del Video Final ➤ {os.path.basename(video_fondo)}\n"
+        f"- Vídeo Seleccionado Como Fondo Del Vídeo Final ➤ {os.path.basename(video_fondo)}\n"
     )
 
     if not os.path.exists(video_fondo):
@@ -1615,8 +1842,20 @@ if usar_video:
             print(f"- Encoder Compatible Detectado ➤ {encoder_video}\n")
             break
 
-    num_logo = random.randint(1, 5)
-    logo_m8ax = os.path.join("M8AX-Logos", f"M8AX-{num_logo}.png")
+    num_logo = random.randint(1, 16)
+
+    logo_m8ax = None
+
+    for ext in [".png", ".mp4"]:
+        ruta_test = os.path.join("M8AX-Logos", f"M8AX-{num_logo}{ext}")
+
+        if os.path.exists(ruta_test):
+            logo_m8ax = ruta_test
+            break
+
+    print(
+        f"- Logo Seleccionado Para Parte Superior Derecha Del Vídeo Final ➤ {os.path.basename(logo_m8ax)}\n"
+    )
 
     if mostrar_narrador:
         drawtext_voces = []
@@ -1637,7 +1876,7 @@ if usar_video:
                 f"text='--- Narrador {voz} ---':"
                 f"fontcolor=#{color_hex}:"
                 f"fontsize=42:"
-                f"fontfile='C\\:/Windows/Fonts/segoeui.ttf':"
+                f"fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
                 f"x=(w-text_w)/2:"
                 f"y=40:"
                 f"borderw=2:"
@@ -1653,26 +1892,128 @@ if usar_video:
     else:
         filtro_voces = ""
 
+    drawtext_hud_m8ax = []
+
+    fecha_hud = datetime.now().strftime("%d%m%Y")
+
+    color_hud = f"#{random.randint(100,255):02X}{random.randint(100,255):02X}{random.randint(100,255):02X}"
+
+    for idx_hud, (num_hud, inicio_hud, fin_hud, texto_hud_sub) in enumerate(
+        subtitulos_srt
+    ):
+
+        if idx_hud >= len(duraciones_audio):
+            break
+
+        hud_timeline_txt = formatear_tiempo(inicio_hud)
+        hud_timeline_txt = hud_timeline_txt.replace(":", r"\:")
+
+        hud_fin_txt = formatear_tiempo(fin_hud)
+        hud_fin_txt = hud_fin_txt.replace(":", r"\:")
+
+        hud_progreso_audio = (
+            ((idx_hud + 1) / total_bloques) * 100 if total_bloques > 0 else 0
+        )
+
+        hud_chars = len(texto_hud_sub)
+
+        hud_duracion_audio = duraciones_audio[idx_hud]
+
+        hud_velocidad_habla = (
+            hud_chars / hud_duracion_audio if hud_duracion_audio > 0 else 0
+        )
+
+        if "d" in hud_timeline_txt or "d" in hud_fin_txt:
+            x_hud = 15
+        else:
+            x_hud = 58
+
+        hud_texto_final = (
+            f"M8AX XTTS - [ {fecha_hud} ] | "
+            f"[ {idx_hud+1:06d} / {total_bloques:06d} ] | "
+            f"[ {hud_timeline_txt} > {hud_fin_txt} ] | "
+            f"{hud_progreso_audio:.2f} \\\\% | "
+            f"{hud_velocidad_habla:.2f} CPS"
+        )
+
+        drawtext_hud_m8ax.append(
+            f"drawtext="
+            f"text='{hud_texto_final}':"
+            f"fontfile='C\\:/Windows/Fonts/consola.ttf':"
+            f"fontsize=22:"
+            f"fontcolor={color_hud}:"
+            f"x={x_hud}:"
+            f"y=5:"
+            f"box=1:"
+            f"boxcolor=black@0.12:"
+            f"boxborderw=6:"
+            f"borderw=1:"
+            f"bordercolor=black@0.7:"
+            f"shadowx=2:"
+            f"shadowy=2:"
+            f"shadowcolor=black@0.7:"
+            f"enable='between(t,{inicio_hud},{fin_hud})'"
+        )
+
+    filtro_hud_m8ax = ",".join(drawtext_hud_m8ax)
+
     ultimo_inicio = subtitulos_srt[-1][1]
     ultimo_fin = subtitulos_srt[-1][2]
 
-    r = random.randint(50, 255)
-    g = random.randint(50, 255)
-    b = random.randint(50, 255)
+    r = random.randint(65, 255)
+    g = random.randint(65, 255)
+    b = random.randint(65, 255)
+
+    fecha_bonita = fecha_espanol().replace(" ➤ ", " A Las ")
+    fecha_bonita = fecha_bonita.replace(":", r"\:")
+    fecha_bonita2 = fecha_bonita.replace(r"\:", ":")
+    tiempo_drawtext = formatear_tiempo(tiempo_base_proceso)
+    tiempo_drawtext = tiempo_drawtext.replace(":", r"\:")
 
     drawtext_final = (
         f"drawtext="
-        f"text='FIN   DEL\nAUDIOLIBRO\nPOR   MvIiIaX - M8AX':"
+        f"text='FIN\nDEL   AUDIOLIBRO\nPOR   MvIiIaX - M8AX':"
         f"fontcolor=#{r:02X}{g:02X}{b:02X}:"
         f"fontsize=150:"
         f"fontfile='C\\:/Windows/Fonts/segoeui.ttf':"
         f"x=(w-text_w)/2:"
-        f"y=(h-text_h)/2:"
+        f"y=(h-text_h)/2-20:"
         f"borderw=4:"
         f"bordercolor=black@0.9:"
         f"shadowx=6:"
         f"shadowy=6:"
         f"shadowcolor=black@0.9:"
+        f"alpha='if(lt(t,{ultimo_inicio}),0,"
+        f"if(lt(t,{ultimo_fin}),1,0))',"
+        f"drawtext="
+        f"text='Generado Por ( M8AX - XTTS ) - El {fecha_bonita} - Procesado Automáticamente Usando {device_nombre_corto} En {tiempo_drawtext}':"
+        f"fontcolor=#{random.randint(85,255):02X}{random.randint(85,255):02X}{random.randint(85,255):02X}@0.93:"
+        f"fontsize=25:"
+        f"fontfile='C\\:/Windows/Fonts/segoeui.ttf':"
+        f"x=(w-text_w)/2:"
+        f"y=h-text_h-10:"
+        f"borderw=2:"
+        f"bordercolor=black@0.8:"
+        f"shadowx=3:"
+        f"shadowy=3:"
+        f"shadowcolor=black@0.8:"
+        f"alpha='if(lt(t,{ultimo_inicio}),0,"
+        f"if(lt(t,{ultimo_fin}),1,0))'"
+    )
+
+    drawtext_extra = (
+        f"drawtext="
+        f"text='Procesado Usando {device_nombre_ffmpeg} | En Honor A MDDD - ( Mi Madre )':"
+        f"fontcolor=#{random.randint(120,255):02X}{random.randint(120,255):02X}{random.randint(120,255):02X}@0.88:"
+        f"fontsize=25:"
+        f"fontfile='C\\:/Windows/Fonts/segoeui.ttf':"
+        f"x=(w-text_w)/2:"
+        f"y=h-text_h-49:"
+        f"borderw=2:"
+        f"bordercolor=black@0.8:"
+        f"shadowx=3:"
+        f"shadowy=3:"
+        f"shadowcolor=black@0.8:"
         f"alpha='if(lt(t,{ultimo_inicio}),0,"
         f"if(lt(t,{ultimo_fin}),1,0))'"
     )
@@ -1684,16 +2025,23 @@ if usar_video:
             "showspectrum",
             "barras",
             "waveform",
+            "soundforge",
+            "showcqt",
+            "kaleidoscope",
+            "showcwt",
+            "oscilloscope",
+            "retroeq",
         ]
     )
 
-    if mostrar_vumeter:
-        print(
-            f"- Vumetro En Pantalla ➤ ON | Visualizador ➤ {visualizador.capitalize()}\n"
-        )
+    print(
+        f"- Vumetro En Vídeo Final ➤ "
+        f"{'ON' if mostrar_vumeter else 'OFF'}"
+        f"{f' | Visualizador ➤ {visualizador.capitalize()}' if mostrar_vumeter else ''}\n"
+    )
 
     print(
-        f"- Nombre Del Narrador En El Video ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
+        f"- Nombre Del Narrador En El Vídeo ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
     )
 
     r = random.randint(80, 255)
@@ -1769,6 +2117,92 @@ if usar_video:
             f"[vu];"
         )
 
+    elif visualizador == "soundforge":
+
+        filtro_visual = (
+            f"[1:a]showwaves="
+            f"s=360x180:"
+            f"mode=cline:"
+            f"rate=60:"
+            f"split_channels=1:"
+            f"scale=lin:"
+            f"colors=#{random.randint(50,255):02X}{random.randint(50,255):02X}{random.randint(50,255):02X}99|#{random.randint(50,255):02X}{random.randint(50,255):02X}{random.randint(50,255):02X}99"
+            f"[vu];"
+        )
+
+    elif visualizador == "showcqt":
+
+        filtro_visual = f"[1:a]showcqt=" f"s=1920x1080," f"scale=360:180" f"[vu];"
+
+    elif visualizador == "kaleidoscope":
+
+        filtro_visual = (
+            f"[1:a]showspectrum="
+            f"s=360x180:"
+            f"mode=combined:"
+            f"color=rainbow:"
+            f"slide=scroll,"
+            f"split=4[a][b][c][d];"
+            f"[a]hflip[aa];"
+            f"[b]vflip[bb];"
+            f"[c]hflip,vflip[cc];"
+            f"[d][aa]hstack[top];"
+            f"[bb][cc]hstack[bottom];"
+            f"[top][bottom]vstack,"
+            f"scale=360:180"
+            f"[vu];"
+        )
+
+    elif visualizador == "showcwt":
+
+        filtro_visual = f"[1:a]showcwt=s=360x180[vu];"
+
+    elif visualizador == "oscilloscope":
+
+        filtro_visual = (
+            f"[1:a]showwaves="
+            f"s=360x180:"
+            f"mode=cline:"
+            f"rate=60:"
+            f"split_channels=1:"
+            f"colors=cyan|blue,"
+            f"format=yuv420p"
+            f"[wave];"
+            f"[wave]oscilloscope="
+            f"x=0.5:"
+            f"y=0.5:"
+            f"s=1:"
+            f"t=0.8:"
+            f"o=0.9:"
+            f"tx=0.5:"
+            f"ty=0.9:"
+            f"tw=1:"
+            f"th=0.7:"
+            f"g=0:"
+            f"st=0:"
+            f"sc=1"
+            f"[vu];"
+        )
+
+    elif visualizador == "retroeq":
+
+        filtro_visual = (
+            f"[1:a]showfreqs="
+            f"s=24x180:"
+            f"mode=bar:"
+            f"fscale=log:"
+            f"ascale=log:"
+            f"colors="
+            f"#{random.randint(80,255):02X}{random.randint(80,255):02X}{random.randint(80,255):02X}|"
+            f"#{random.randint(80,255):02X}{random.randint(80,255):02X}{random.randint(80,255):02X}|"
+            f"#{random.randint(80,255):02X}{random.randint(80,255):02X}{random.randint(80,255):02X}|"
+            f"#{random.randint(80,255):02X}{random.randint(80,255):02X}{random.randint(80,255):02X}"
+            f"[small];"
+            f"[small]scale=360:180:"
+            f"flags=neighbor"
+            f"[vu];"
+        )
+
     else:
 
         filtro_visual = (
@@ -1780,15 +2214,23 @@ if usar_video:
             f"[vu];"
         )
 
+    if duracion_opus < 60:
+        fade_inicio = 2
+        fade_duracion = 3
+    else:
+        fade_inicio = 5
+        fade_duracion = 10
+
     filtro_completo = (
         f"{filtro_visual}"
         f"[0:v]subtitles='{SRT_FFMPEG}':"
-        f"force_style='FontName=Segoe UI,FontSize=21,"
+        f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
-        f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=20'"
-        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final}"
+        f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
+        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax}"
         f"[sub];"
-        f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo];"
+        f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
+        f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
         f"[sub]drawbox="
         f"x=iw-590:"
         f"y=30:"
@@ -1797,18 +2239,21 @@ if usar_video:
         f"color=#{r:02X}{g:02X}{b:02X}@0.35:"
         f"t=1[box];"
         f"[box][vu]overlay=W-w-224:36[tmp];"
-        f"[tmp][logo]overlay=W-w-25:36:format=auto[v]"
+        f"[tmp][logo_small]overlay=W-w-25:36:format=auto[tmp2];"
+        f"[tmp2][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[v]"
     )
 
     filtro_completo_sinvu = (
         f"[0:v]subtitles='{SRT_FFMPEG}':"
-        f"force_style='FontName=Segoe UI,FontSize=21,"
+        f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
-        f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=20'"
-        f"{',' + filtro_voces if filtro_voces else ''}"
+        f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
+        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax}"
         f"[sub];"
-        f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo];"
-        f"[sub][logo]overlay=W-w-25:25:format=auto[v]"
+        f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
+        f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
+        f"[sub][logo_small]overlay=W-w-25:25:format=auto[tmp];"
+        f"[tmp][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[v]"
     )
 
     filtro_final = ""
@@ -1820,6 +2265,16 @@ if usar_video:
 
     with open("M8AX_Filtro_Complejo.TxT", "w", encoding="utf-8") as f:
         f.write(filtro_final)
+
+    if not logo_m8ax:
+        print("- No Se Encontró Ningún Logo Compatible Para Hacer El Vídeo...\n")
+        exit()
+
+    SEGUNDOS_SEGMENTO = 41400
+
+    SEGMENTAR_MP4 = duracion_opus > SEGUNDOS_SEGMENTO
+
+    SALIDA_MP4_PARTES = SALIDA_MP4.replace(".mp4", "_Parte_%03d.mp4")
 
     cmd_video = [
         "ffmpeg",
@@ -1835,8 +2290,11 @@ if usar_video:
         video_fondo,
         "-i",
         SALIDA_OPUS,
-        "-i",
-        logo_m8ax,
+        *(
+            ["-stream_loop", "-1", "-i", logo_m8ax]
+            if logo_m8ax.lower().endswith(".mp4")
+            else ["-loop", "1", "-i", logo_m8ax]
+        ),
         "-filter_complex_script",
         "M8AX_Filtro_Complejo.TxT",
         "-map",
@@ -1868,11 +2326,11 @@ if usar_video:
         "-metadata",
         f"date={fecha_archivo}",
         "-metadata",
-        "comment=Generado Por M8AX Con XTTS",
+        f"comment=Generado Por M8AX Con XTTS | Fecha ➤ {fecha_bonita2} | Procesado Automáticamente Usando ➤ {device_nombre} | Tiempo Total De Procesamiento ➤ {formatear_tiempo(tiempo_base_proceso)}",
         "-metadata",
         f"description={'No Hay Música De Fondo | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Mono' if not usar_musica else f'Fondo Musical ➤ {os.path.basename(ruta_musica)} | Volumen Base ➤ 0.15 | Reducción Automática ( Ducking ) ➤ Activado | Umbral ➤ 0.03 | Intensidad ➤ 5 | Ataque ➤ 40ms | Recuperación ➤ 400ms | Voz ➤ Mono A Estéreo ( Centrada ) | Mezcla ➤ amix | Duración Final ➤ Igual A La Voz | Música En Bucle ➤ Sí | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Estéreo'}",
         "-metadata",
-        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
+        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Logo ➤ {os.path.basename(logo_m8ax)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
         "-metadata",
         "genre=--- M8AX XTTS VoZ ---",
         "-metadata",
@@ -1889,7 +2347,21 @@ if usar_video:
         "composer=M8AX - The Algorithm Man - M8AX",
         "-metadata",
         "lyrics=... Por Muchas Vueltas Que Demos, Siempre Tendremos El Culo Atrás ... | El Futuro No Está Establecido, No Hay Destino... Solo Existe El Que Nosotros Hacemos. | La Fuerza Es Lo Que Le Da Al Jedi Su Poder, Es Un Campo De Energía Formado Por Todas Las Cosas Vivientes, Nos Rodea... Penetra En Nosotros Y Mantiene Unida La Galaxia... | El Miedo Es El Camino Hacia El Lado Oscuro, El Miedo Lleva A La Ira, La Ira Lleva Al Odio, El Odio Lleva Al Sufrimiento... | Yo He Visto Cosas Que Vosotros No Creeríais. Atacar Naves En Llamas Más Allá De Orión. He Visto Rayos-C Brillar En La Oscuridad Cerca De La Puerta De Tannhäuser. Todos Esos Momentos Se Perderán En El Tiempo, Como Lágrimas En La Lluvia. Es Hora De Morir... | AudioLibro Compilado En Honor A MDDD...",
-        SALIDA_MP4,
+        *(
+            [
+                "-f",
+                "segment",
+                "-segment_time",
+                str(SEGUNDOS_SEGMENTO),
+                "-reset_timestamps",
+                "1",
+                "-segment_start_number",
+                "1",
+                SALIDA_MP4_PARTES,
+            ]
+            if SEGMENTAR_MP4
+            else [SALIDA_MP4]
+        ),
     ]
 
     res_video = subprocess.Popen(
@@ -1915,19 +2387,50 @@ if usar_video:
             print(linea, end="", flush=True)
 
     res_video.wait()
+
+    partes_mp4 = []
+
+    if SEGMENTAR_MP4:
+
+        nombre_base_actual = os.path.splitext(os.path.basename(SALIDA_MP4))[0]
+
+        for fichero in os.listdir("."):
+
+            if fichero.startswith(nombre_base_actual + "_Parte_") and fichero.endswith(
+                ".mp4"
+            ):
+                partes_mp4.append(fichero)
+
+    partes_mp4.sort()
+
     sys.stdout.guardar_ffmpeg_final()
 
     if res_video.returncode == 0:
+
         estado_narrador = (
             "Con Nombre Del Narrador ON"
             if mostrar_narrador
             else "Con Nombre Del Narrador OFF"
         )
 
-        print(
-            f"\n\n- Vídeo MP4 Generado Correctamente ➤ {SALIDA_MP4} | {estado_narrador}\n"
-        )
+        if SEGMENTAR_MP4:
+
+            print(
+                f"\n\n- Vídeos MP4 Generados Correctamente ➤ "
+                f"{len(partes_mp4)} Partes | "
+                f"{estado_narrador}\n"
+            )
+
+        else:
+
+            print(
+                f"\n\n- Vídeo MP4 Generado Correctamente ➤ "
+                f"{SALIDA_MP4} | "
+                f"{estado_narrador}\n"
+            )
+
     else:
+
         print("\n- Error Generando El Vídeo MP4\n")
 
 try:
@@ -1938,14 +2441,346 @@ except Exception as e:
     print(f"- Error Al Borrar M8AX_Filtro_Complejo.TxT ➤ {e}\n")
 
 try:
-    if usar_video:
-        os.startfile(SALIDA_MP4)
-        print(f"- Reproduciendo Vídeo Final ➤ {SALIDA_MP4}\n")
-    else:
-        os.startfile(SALIDA_OPUS)
-        print(f"- Reproduciendo Archivo Final ➤ {SALIDA_OPUS}\n")
+
+    if nombre_grafica and os.path.exists(nombre_grafica):
+
+        os.startfile(nombre_grafica)
+
+        print(f"- Abriendo Gráficas PRO Automáticamente ➤ " f"{nombre_grafica}\n")
+
 except Exception as e:
+
+    print(f"- No Se Pudieron Abrir Las Gráficas ➤ {e}\n")
+
+try:
+
+    if usar_video:
+
+        if SEGMENTAR_MP4 and len(partes_mp4) > 1:
+
+            playlist_m3u = SALIDA_MP4.replace(".mp4", "_PlayList.m3u")
+
+            with open(playlist_m3u, "w", encoding="utf-8") as f:
+
+                for parte_mp4 in partes_mp4:
+                    f.write(parte_mp4 + "\n")
+
+            os.startfile(playlist_m3u)
+
+            print(f"- Reproduciendo Playlist Multipartes ➤ " f"{playlist_m3u}\n")
+
+        elif SEGMENTAR_MP4 and partes_mp4:
+
+            os.startfile(partes_mp4[0])
+
+            print(f"- Reproduciendo Primera Parte Del Vídeo ➤ " f"{partes_mp4[0]}\n")
+
+        else:
+
+            os.startfile(SALIDA_MP4)
+
+            print(f"- Reproduciendo Vídeo Final ➤ " f"{SALIDA_MP4}\n")
+
+    else:
+
+        os.startfile(SALIDA_OPUS)
+
+        print(f"- Reproduciendo Archivo Final ➤ " f"{SALIDA_OPUS}\n")
+
+except Exception as e:
+
     print(f"- No Se Pudo Reproducir Automáticamente ➤ {e}\n")
+
+fin_total = time.time()
+duracion_total_final = fin_total - inicio2
+rtf_total_final = duracion_total_final / duracion_opus if duracion_opus > 0 else 0
+
+print(f"{'-'*175}\n")
+
+print("- ¡ Listo, Trabajo Realizado !\n")
+
+print(
+    f"- Archivo Final De Audio OPUS ➤ {SALIDA_OPUS} - ( {tamano_m8ax(SALIDA_OPUS)} )\n"
+)
+
+if usar_video:
+
+    if SEGMENTAR_MP4:
+
+        print(f"- Vídeos MP4 Generados ➤ " f"{len(partes_mp4)} Partes\n")
+
+        tam_total_partes = 0
+
+        for idx_parte, parte_mp4 in enumerate(partes_mp4, start=1):
+
+            print(
+                f"  · Parte {idx_parte:03d} ➤ "
+                f"{parte_mp4} - "
+                f"( {tamano_m8ax(parte_mp4)} )"
+            )
+
+            tam_total_partes += os.path.getsize(parte_mp4)
+
+        print()
+
+        tam_total_partes = tam_total_partes / (1024 * 1024)
+
+        if tam_total_partes >= 500:
+            tam_total_txt = f"{tam_total_partes / 1024:.2f} GB"
+        else:
+            tam_total_txt = f"{tam_total_partes:.2f} MB"
+
+        print(f"- Tamaño Total Multipartes ➤ " f"{tam_total_txt}\n")
+
+    else:
+
+        print(
+            f"- Fichero Del Vídeo Final ➤ "
+            f"{SALIDA_MP4} - "
+            f"( {tamano_m8ax(SALIDA_MP4)} )\n"
+        )
+
+if os.path.exists(SRT_SALIDA):
+
+    print(
+        f"- Fichero SRT De Subtítulos ➤ {SRT_SALIDA} - ( {tamano_m8ax(SRT_SALIDA)} )\n"
+    )
+
+else:
+    print("- No Se Generó El Fichero SRT De Subtítulos\n")
+
+if nombre_grafica:
+
+    print(
+        f"- Fichero De Gráficas PRO ➤ {nombre_grafica} - ( {tamano_m8ax(nombre_grafica)} )\n"
+    )
+
+else:
+    print("- No Se Generaron Gráficas PRO\n")
+
+if os.path.exists("M8AX-LoG-XTTS.log"):
+
+    print(
+        f"- Fichero De Log ➤ M8AX-LoG-XTTS.log - ( {tamano_m8ax('M8AX-LoG-XTTS.log')} )\n"
+    )
+
+else:
+    print("- No Se Generó El Fichero De Log\n")
+
+print(f"--- RTFs Del Sistema Usando ➤ {device_nombre} ---\n")
+
+print(
+    f"- RTF XTTS Puro ➤ {rtf_xtts:.2f}x - "
+    f"( Solo Generación De Texto A Voz | Motor XTTS | )\n"
+)
+
+print(
+    f"- RTF Audio Final ➤ {rtf:.2f}x - "
+    f"( Motor XTTS + Audio WAV + Conversión A OPUS )\n"
+)
+
+if usar_video:
+
+    print(
+        f"- RTF Producción Final ➤ {rtf_total_final:.2f}x - "
+        f"( Motor XTTS + Audio WAV + Conversión A OPUS + Vídeo Final MP4 + Pipeline Completo )\n"
+    )
+
+if (
+    TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
+    and CHAT_ID_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
+):
+
+    print("- Enviando Mensaje Final De Estadísticas, A Tu Telegram...\n")
+
+    telegram_m8ax(
+        f"✅ M8AX XTTS ENGINE v2 ➤ AUDIOLIBRO FINALIZADO\n\n"
+        f"🖥️ HARDWARE Y SISTEMA\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Hardware ➤ {device_nombre}\n"
+        f"• Frecuencia OPUS ➤ {sample_rate} Hz\n"
+        f"• Bits ➤ {bits}\n"
+        f"• Canales ➤ {canales_opus}\n"
+        f"• Bitrate ➤ {bitrate} Kbps\n"
+        f"• Encoder Vídeo ➤ {encoder_video if usar_video else 'Sin Vídeo'}\n\n"
+        f"🌙 DATOS LUNARES\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Inicio ➤ {fecha_luna_inicio}\n"
+        f"• Luna Inicio ➤ {luna_inicio.phase:.2f}%\n"
+        f"• Edad Lunar Inicio ➤ {edad_luna_inicio:.1f} Días\n"
+        f"• Distancia Inicio ➤ {distancia_inicio_km:,.0f} KM\n"
+        f"• Fin ➤ {fecha_luna_fin}\n"
+        f"• Luna Final ➤ {luna_fin.phase:.2f}%\n"
+        f"• Edad Lunar Final ➤ {edad_luna_fin:.1f} Días\n"
+        f"• Distancia Final ➤ {distancia_fin_km:,.0f} KM\n\n"
+        f"⏱️ TIEMPOS Y DURACIONES\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Tiempo Total De Procesamiento ➤ {formatear_tiempo(duracion_total_final)}\n"
+        f"• Duración OPUS ➤ {formatear_tiempo(duracion_opus)}\n"
+        f"• Tiempo Pausas ➤ {formatear_tiempo(total_pausas)}\n"
+        f"• Tiempo / 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs\n\n"
+        f"⚡ RENDIMIENTO XTTS\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• RTF XTTS ➤ {rtf_xtts:.2f}x\n"
+        f"• RTF Audio Final ➤ {rtf:.2f}x\n"
+        + (f"• RTF Producción Final ➤ {rtf_total_final:.2f}x\n" if usar_video else "")
+        + f"• Eficiencia ➤ {eficiencia:.2f}\n"
+        f"• Rendimiento ➤ {audio_por_minuto:.2f} Segs / Min\n"
+        f"• Bloques / Segundo ➤ {bloques_por_seg:.5f}\n"
+        f"• Bloques / Minuto ➤ {bloques_por_seg * 60:.2f}\n"
+        f"• Bloques / Hora ➤ {bloques_por_seg * 3600:.2f}\n"
+        f"• Bloques / Semana ➤ {bloques_por_seg * 604800:.2f}\n"
+        f"• Velocidad Texto ➤ {velocidad_chars:.2f} Caract / Seg\n"
+        f"• Velocidad Habla ➤ {chars_por_seg_audio:.2f} Caract / Seg\n"
+        f"• Ratio Caracteres / Audio ➤ {ratio_chars_audio:.2f}\n\n"
+        f"🧠 BLOQUES Y TEXTO\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Bloques TXT ➤ {total_bloques}\n"
+        f"• Bloques Generados ➤ {len(archivos)}\n"
+        f"• Tiempo Medio Bloque ➤ {tiempo_medio_bloque:.2f} Segs\n"
+        f"• Duración Media Bloque ➤ {media_audio:.3f} Segs\n"
+        f"• Caracteres Medios Por Bloque ➤ {media_chars:.2f}\n"
+        f"• Variabilidad Caracteres ➤ {desviacion_chars:.2f}\n"
+        f"• Bloque Más Largo Texto ➤ {max_chars_b}\n"
+        f"• Bloque Más Corto Texto ➤ {min_chars_b}\n"
+        f"• Variabilidad Duración ➤ {desviacion:.2f} Segs\n"
+        f"• Bloque Más Largo Audio ➤ {max_duracion:.2f} Segs\n"
+        f"• Bloque Más Corto Audio ➤ {min_duracion:.2f} Segs\n"
+        f"• Caracteres Originales ➤ {len(texto)}\n"
+        f"• Caracteres Procesados ➤ {total_chars}\n\n"
+        f"🧪 DETECCIÓN DE ERRORES\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Bloques Fallidos ➤ {len(bloques_fallidos)}\n"
+        f"• Porcentaje De Bloques Fallidos ➤ {porcentaje_fallidos:.2f}%\n"
+        f"• Bloques Sospechosos ➤ {len(bloques_raros)}\n"
+        f"• Porcentaje De Bloques Sospechosos ➤ {porcentaje_sospechosos:.2f}%\n\n"
+        f"🎙️ VOCES\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Voces Distintas ➤ {len(voces_usadas)}\n"
+        f"• Tiempo Total Voces ➤ {formatear_tiempo(sum(tiempo_por_voz.values()))}\n"
+        f"• Diferencia OPUS / Voces ➤ {abs(sum(tiempo_por_voz.values()) - duracion_opus):.2f} Segs\n\n"
+        f"💾 TAMAÑOS Y COMPRESIÓN\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Tamaño WAV ➤ {tamano:.2f} MB\n"
+        f"• Tamaño OPUS ➤ {tamano_opus:.2f} MB\n"
+        f"• Compresión ➤ {comp:.2f}%\n"
+        f"• Ratio ➤ {ratio:.2f}x\n\n"
+        f"🎬 PRODUCCIÓN DE VÍDEO\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• Vídeo ➤ {'ON' if usar_video else 'OFF'}\n"
+        + (
+            f"• Fondo ➤ {os.path.basename(video_fondo)}\n"
+            f"• Logo ➤ {os.path.basename(logo_m8ax)}\n"
+            f"• Narrador ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
+            f"• Vúmetro ➤ {'ON' if mostrar_vumeter else 'OFF'}\n"
+            f"• Visualizador ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'}\n"
+            if usar_video
+            else ""
+        )
+        + (
+            f"• Multipartes ➤ {len(partes_mp4)}\n"
+            f"• Tamaño Multipartes ➤ "
+            f"{f'{(sum(os.path.getsize(p) for p in partes_mp4)/(1024*1024*1024)):.2f} GB' if (sum(os.path.getsize(p) for p in partes_mp4)/(1024*1024)) >= 500 else f'{(sum(os.path.getsize(p) for p in partes_mp4)/(1024*1024)):.2f} MB'}\n"
+            if usar_video and SEGMENTAR_MP4
+            else ""
+        )
+        + (
+            f"• Tamaño MP4 ➤ {tamano_m8ax(SALIDA_MP4)}\n"
+            if usar_video and not SEGMENTAR_MP4
+            else ""
+        )
+    )
+
+    logging.getLogger("TTS").setLevel(logging.CRITICAL)
+
+    luna_final_log = ephem.Moon()
+    luna_final_log.compute()
+    edad_luna = ephem.now() - ephem.previous_new_moon(ephem.now())
+
+    mensaje_audio_final = (
+        f"Audiolibro finalizado correctamente. "
+        f"Tiempo total de procesamiento. "
+        f"{int(duracion_total_final // 86400)} días, "
+        f"{int((duracion_total_final % 86400) // 3600)} horas, "
+        f"{int((duracion_total_final % 3600) // 60)} minutos y "
+        f"{int(duracion_total_final % 60)} segundos. "
+        f"Erre te efe final: {rtf_total_final:.2f}. "
+        f"Bloques por hora: {bloques_por_seg * 3600:.2f}. "
+        f"Procesado usando: {device_nombre_ffmpeg}. "
+        f"Generado el {fecha_espanol().replace(' ➤ ', ' a las ')}. Luna visible al {luna_final_log.phase:.2f}%. Edad lunar: {edad_luna:.1f} Días. "
+        f"Por eme ocho a equis. "
+        f"En Honor A Emedededede. Mi Madre."
+    )
+
+    print(
+        "- Generando Y Enviando Fichero De Audio OPUS De Estadísticas Cortas, A Tu Telegram... Por Favor Espera...\n"
+    )
+
+    with open(os.devnull, "w") as fnull:
+
+        with contextlib.redirect_stdout(fnull):
+
+            tts.tts_to_file(
+                text=mensaje_audio_final,
+                speaker_wav=voz_actual,
+                language="es",
+                file_path="M8AX_Final.wav",
+                split_sentences=True,
+            )
+
+    cmd_audio_telegram = [
+        "ffmpeg",
+        "-y",
+        "-v",
+        "error",
+        "-i",
+        "M8AX_Final.wav",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "48k",
+        "-ar",
+        "24000",
+        "M8AX_Final.opus",
+    ]
+
+    subprocess.run(
+        cmd_audio_telegram, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+    telegram_ok = False
+
+    try:
+
+        with open("M8AX_Final.opus", "rb") as audio:
+
+            requests.post(
+                f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendAudio",
+                data={
+                    "chat_id": CHAT_ID_TELEGRAM,
+                    "caption": "🔊 M8AX ➤ Resumen Final Del Engine",
+                },
+                files={
+                    "audio": audio,
+                },
+                timeout=30,
+            )
+
+        telegram_ok = True
+
+    except:
+        pass
+
+    if telegram_ok:
+        print(
+            "- Fichero De Audio OPUS De Estadísticas Cortas, Enviado Correctamente A Tu Telegram.\n"
+        )
+
+    if os.path.exists("M8AX_Final.wav"):
+        os.remove("M8AX_Final.wav")
+
+    if os.path.exists("M8AX_Final.opus"):
+        os.remove("M8AX_Final.opus")
 
 print(f"{'-'*175}\n")
 
@@ -1953,6 +2788,7 @@ if os.path.exists("M8AX-Bloques_Debug.TxT"):
     print(
         "----- ¿ Quieres Borrar El Fichero De Debug De Bloques M8AX-Bloques_Debug.TxT ? -----\n"
     )
+
     print("1. ➤ Sí\n")
     print("2. ➤ No\n")
     print("----- Selecciona Opción ----- ", end="", flush=True)
@@ -1971,41 +2807,19 @@ if os.path.exists("M8AX-Bloques_Debug.TxT"):
         print("\n- Fichero De Debug Conservado. No Se Eliminará...\n")
 
 print(f"{'-'*175}\n")
-print("- ¡ Listo, Trabajo Realizado !\n")
-print(
-    f"- Archivo Final De Audio OPUS ➤ {SALIDA_OPUS} - ( {tamano_m8ax(SALIDA_OPUS)} )\n"
-)
-
-if usar_video:
-    print(f"- Fichero Del Vídeo Final ➤ {SALIDA_MP4} - ( {tamano_m8ax(SALIDA_MP4)} )\n")
-
-if os.path.exists(SRT_SALIDA):
-    print(
-        f"- Fichero SRT De Subtítulos ➤ {SRT_SALIDA} - ( {tamano_m8ax(SRT_SALIDA)} )\n"
-    )
-else:
-    print("- No Se Generó El Fichero SRT De Subtítulos\n")
-
-if nombre_grafica:
-    print(
-        f"- Fichero De Gráficas PRO ➤ {nombre_grafica} - ( {tamano_m8ax(nombre_grafica)} )\n"
-    )
-else:
-    print("- No Se Generaron Gráficas PRO\n")
-
-if os.path.exists("M8AX-LoG-XTTS.log"):
-    print(
-        f"- Fichero De Log ➤ M8AX-LoG-XTTS.log - ( {tamano_m8ax('M8AX-LoG-XTTS.log')} )\n"
-    )
-else:
-    print("- No Se Generó El Fichero De Log\n")
-
-print(f"{'-'*175}\n")
 
 luna_final_log = ephem.Moon()
 luna_final_log.compute()
+edad_luna = ephem.now() - ephem.previous_new_moon(ephem.now())
+distancia_km = luna_final_log.earth_distance * 149597870.7
 
-print(f"- {fecha_espanol()} - ( Luna Visible ➤ {luna_final_log.phase:.2f}% )")
-print(f"\n- YouTube Channel ➤ https://youtube.com/m8ax")
-print(f"\n- ... By M8AX ...")
+print(
+    f"- {fecha_espanol()} - "
+    f"( Luna Visible ➤ {luna_final_log.phase:.2f}% | "
+    f"Edad Lunar ➤ {edad_luna:.1f} Días | "
+    f"Distancia A Tierra ➤ {distancia_km:,.0f} KM )"
+)
+
+print(f"\n- YouTube Channel ➤ https://youtube.com/m8ax ➤ ¡ Suscríbete !")
+print(f"\n- ... By M8AX & {device_nombre} ...")
 print(f"\n{'-'*175}")
