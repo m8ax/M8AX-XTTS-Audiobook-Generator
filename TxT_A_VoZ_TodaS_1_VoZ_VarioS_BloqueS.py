@@ -2309,6 +2309,8 @@ if usar_video:
         "2000k",
         "-bufsize",
         "4000k",
+        "-threads",
+        "0",
         *args_encoder,
         "-pix_fmt",
         "yuv420p",
@@ -2494,6 +2496,7 @@ except Exception as e:
 fin_total = time.time()
 duracion_total_final = fin_total - inicio2
 rtf_total_final = duracion_total_final / duracion_opus if duracion_opus > 0 else 0
+tiempo_extra_produccion = duracion_total_final - duracion_proceso
 
 print(f"{'-'*175}\n")
 
@@ -2586,6 +2589,12 @@ if usar_video:
         f"( Motor XTTS + Audio WAV + Conversión A OPUS + Vídeo Final MP4 + Pipeline Completo )\n"
     )
 
+    print(
+        f"- Tiempo Extra Pipeline Final ➤ "
+        f"{formatear_tiempo(tiempo_extra_produccion)} - "
+        f"( Vídeo Final MP4 + Pipeline Completo )\n"
+    )
+
 if (
     TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
     and CHAT_ID_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
@@ -2593,29 +2602,42 @@ if (
 
     print("- Enviando Mensaje Final De Estadísticas, A Tu Telegram...\n")
 
+    fecha_luna_fin_total = fecha_espanol()
+    luna_fin_total = ephem.Moon()
+    luna_fin_total.compute()
+
+    edad_luna_fin_total = ephem.now() - ephem.previous_new_moon(ephem.now())
+
+    distancia_fin_total_km = luna_fin_total.earth_distance * 149597870.7
+
     telegram_m8ax(
         f"✅ M8AX XTTS ENGINE v2 ➤ AUDIOLIBRO FINALIZADO\n\n"
         f"🖥️ HARDWARE Y SISTEMA\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Hardware ➤ {device_nombre}\n"
-        f"• Frecuencia OPUS ➤ {sample_rate} Hz\n"
+        f"• Frecuencia Audio OPUS ➤ {sample_rate} Hz\n"
         f"• Bits ➤ {bits}\n"
         f"• Canales ➤ {canales_opus}\n"
         f"• Bitrate ➤ {bitrate} Kbps\n"
         f"• Encoder Vídeo ➤ {encoder_video if usar_video else 'Sin Vídeo'}\n\n"
         f"🌙 DATOS LUNARES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Inicio ➤ {fecha_luna_inicio}\n"
-        f"• Luna Inicio ➤ {luna_inicio.phase:.2f}%\n"
-        f"• Edad Lunar Inicio ➤ {edad_luna_inicio:.1f} Días\n"
-        f"• Distancia Inicio ➤ {distancia_inicio_km:,.0f} KM\n"
-        f"• Fin ➤ {fecha_luna_fin}\n"
-        f"• Luna Final ➤ {luna_fin.phase:.2f}%\n"
-        f"• Edad Lunar Final ➤ {edad_luna_fin:.1f} Días\n"
-        f"• Distancia Final ➤ {distancia_fin_km:,.0f} KM\n\n"
+        f"• Inicio Del Procesamiento ➤ {fecha_luna_inicio}\n"
+        f"• Luna Visible Al Inicio ➤ {luna_inicio.phase:.2f}%\n"
+        f"• Edad Lunar Al Inicio ➤ {edad_luna_inicio:.1f} Días\n"
+        f"• Distancia A La Luna Al Inicio ➤ {distancia_inicio_km:,.0f} KM\n"
+        f"• Fin De Generación Del Audio OPUS ➤ {fecha_luna_fin}\n"
+        f"• Luna Visible Al Final Del Audio OPUS ➤ {luna_fin.phase:.2f}%\n"
+        f"• Edad Lunar Al Final Del Audio OPUS ➤ {edad_luna_fin:.1f} Días\n"
+        f"• Distancia A La Luna Al Final Del Audio OPUS ➤ {distancia_fin_km:,.0f} KM\n"
+        f"• Fin De Producción Final ➤ {fecha_luna_fin_total}\n"
+        f"• Luna Visible Al Final De La Producción ➤ {luna_fin_total.phase:.2f}%\n"
+        f"• Edad Lunar Al Final De La Producción ➤ {edad_luna_fin_total:.1f} Días\n"
+        f"• Distancia A La Luna Al Final De La Producción ➤ {distancia_fin_total_km:,.0f} KM\n\n"
         f"⏱️ TIEMPOS Y DURACIONES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Tiempo Total De Procesamiento ➤ {formatear_tiempo(duracion_total_final)}\n"
+        f"• Tiempo Extra Pipeline Final ➤ {formatear_tiempo(tiempo_extra_produccion)}\n"
         f"• Duración OPUS ➤ {formatear_tiempo(duracion_opus)}\n"
         f"• Tiempo Pausas ➤ {formatear_tiempo(total_pausas)}\n"
         f"• Tiempo / 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs\n\n"
@@ -2624,7 +2646,7 @@ if (
         f"• RTF XTTS ➤ {rtf_xtts:.2f}x\n"
         f"• RTF Audio Final ➤ {rtf:.2f}x\n"
         + (f"• RTF Producción Final ➤ {rtf_total_final:.2f}x\n" if usar_video else "")
-        + f"• Eficiencia ➤ {eficiencia:.2f}\n"
+        + f"• Eficiencia ➤ {eficiencia:.2f} Segs Audio / Seg Procesado\n"
         f"• Rendimiento ➤ {audio_por_minuto:.2f} Segs / Min\n"
         f"• Bloques / Segundo ➤ {bloques_por_seg:.5f}\n"
         f"• Bloques / Minuto ➤ {bloques_por_seg * 60:.2f}\n"
@@ -2640,10 +2662,10 @@ if (
         f"• Tiempo Medio Bloque ➤ {tiempo_medio_bloque:.2f} Segs\n"
         f"• Duración Media Bloque ➤ {media_audio:.3f} Segs\n"
         f"• Caracteres Medios Por Bloque ➤ {media_chars:.2f}\n"
-        f"• Variabilidad Caracteres ➤ {desviacion_chars:.2f}\n"
+        f"• Variabilidad De Caracteres ➤ {desviacion_chars:.2f}\n"
         f"• Bloque Más Largo Texto ➤ {max_chars_b}\n"
         f"• Bloque Más Corto Texto ➤ {min_chars_b}\n"
-        f"• Variabilidad Duración ➤ {desviacion:.2f} Segs\n"
+        f"• Variabilidad De Duración ➤ {desviacion:.2f} Segs\n"
         f"• Bloque Más Largo Audio ➤ {max_duracion:.2f} Segs\n"
         f"• Bloque Más Corto Audio ➤ {min_duracion:.2f} Segs\n"
         f"• Caracteres Originales ➤ {len(texto)}\n"
@@ -2699,15 +2721,15 @@ if (
 
     mensaje_audio_final = (
         f"Audiolibro finalizado correctamente. "
-        f"Tiempo total de procesamiento. "
+        f"Tiempo total de producción: "
         f"{int(duracion_total_final // 86400)} días, "
         f"{int((duracion_total_final % 86400) // 3600)} horas, "
         f"{int((duracion_total_final % 3600) // 60)} minutos y "
         f"{int(duracion_total_final % 60)} segundos. "
-        f"Erre te efe final: {rtf_total_final:.2f}. "
-        f"Bloques por hora: {bloques_por_seg * 3600:.2f}. "
+        f"Erre te efe final: {str(round(rtf_total_final, 2)).replace('.', ' coma ')}. "
+        f"Bloques por hora: {str(round(bloques_por_seg * 3600, 2)).replace('.', ' coma ')}. "
         f"Procesado usando: {device_nombre_ffmpeg}. "
-        f"Generado el {fecha_espanol().replace(' ➤ ', ' a las ')}. Luna visible al {luna_final_log.phase:.2f}%. Edad lunar: {edad_luna:.1f} Días. "
+        f"Generado el {fecha_luna_fin_total.replace(' ➤ ', ' a las ')}. Luna visible al {str(round(luna_final_log.phase, 2)).replace('.', ' coma ')}%. Edad lunar: {str(round(edad_luna, 1)).replace('.', ' coma ')} días. "
         f"Por eme ocho a equis. "
         f"En Honor A Emedededede. Mi Madre."
     )
