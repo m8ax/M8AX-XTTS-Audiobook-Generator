@@ -32,9 +32,11 @@
 
 from datetime import datetime
 from TTS.api import TTS
+from PIL import Image
 import subprocess
 import statistics
 import logging
+import qrcode
 import cpuinfo
 import requests
 import contextlib
@@ -541,6 +543,39 @@ def formatear_tiempo(segundos):
     else:
         return f"{h:02d}h:{m:02d}m:{s:02d}s"
 
+def generar_qr_transparente(texto, salida, color=(255, 255, 255)):
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=6,
+        border=1,
+    )
+
+    qr.add_data(texto)
+
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="white", back_color="black").convert("RGBA")
+
+    datos = img.getdata()
+
+    nuevos = []
+
+    for item in datos:
+
+        if item[:3] == (0, 0, 0):
+
+            nuevos.append((0, 0, 0, 0))
+
+        else:
+
+            nuevos.append((color[0], color[1], color[2], 255))
+
+    img.putdata(nuevos)
+
+    img.save(salida)
+
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("TTS").setLevel(logging.DEBUG)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -556,6 +591,12 @@ time.sleep(2)
 fuego_m8ax()
 
 os.system("cls")
+
+shutil.rmtree("M8AX-WAVs", ignore_errors=True)
+shutil.rmtree("M8AX-QRs", ignore_errors=True)
+
+os.makedirs("M8AX-WAVs", exist_ok=True)
+os.makedirs("M8AX-QRs", exist_ok=True)
 
 if not os.path.exists("m8ax.txt"):
     print(
@@ -731,9 +772,22 @@ if usar_video:
     else:
         print("\n---/// El Vídeo Se Generará Sin Vumetro \\\\\\---")
 
+    print("\n----- ¿ Quieres Mostrar QRs Dinámicos En El Vídeo ? -----\n")
+    print("1. ➤ Sí\n")
+    print("2. ➤ No\n")
+
+    opcion_qr = input("----- Selecciona Opción ----- ").strip()
+
+    usar_qr = opcion_qr == "1"
+
+    if usar_qr:
+        print("\n---/// El Vídeo Se Generará Con QR Dinámicos Por Bloque \\\\\\---")
+    else:
+        print("\n---/// El Vídeo Se Generará Sin QR Dinámicos \\\\\\---")
 else:
     mostrar_narrador = False
     mostrar_vumeter = False
+    usar_qr = False
     print("\n---/// No Se Generará Vídeo MP4 \\\\\\---")
 
 time.sleep(5)
@@ -983,6 +1037,7 @@ luna = ephem.Moon()
 bloques_sospechosos_total = 0
 tam_wavs_total = 0
 subtitulos_srt = []
+qr_por_bloque = []
 chars_totales_actual = 0
 ultimo_telegram = time.time()
 
@@ -1019,7 +1074,7 @@ for i, bloque in enumerate(bloques, 1):
     if nombre not in voces_usadas:
         voces_usadas.append(nombre)
 
-    nombre_salida = f"MvIiIaX_Bloque_{i:06d}.wav"
+    nombre_salida = os.path.join("M8AX-WAVs", f"MvIiIaX_Bloque_{i:06d}.wav")
 
     print(
         f"⬤ ⬤ ⬤ - | | |  B L O Q U E  ➤  {i:06d}  D E  {total_bloques:06d}  | | | - ⬤ ⬤ ⬤\n",
@@ -1068,6 +1123,34 @@ for i, bloque in enumerate(bloques, 1):
     inicio_real = timeline
     fin_real = inicio_real + duracion_audio
     subtitulos_srt.append((i, inicio_real, fin_real, bloque.strip()))
+
+    if usar_qr and i != total_bloques:
+
+        texto_qr = (
+            f"[ Bloque {i} De {total_bloques} ]\n\n"
+            + bloque.strip()
+            + "\n\nSi Te Apetece Apoyar El Canal ➤ https://www.paypal.com/paypalme/m8ax"
+        )
+
+        r_qr = random.randint(150, 255)
+        g_qr = random.randint(150, 255)
+        b_qr = random.randint(150, 255)
+
+        qr_path = os.path.join("M8AX-QRs", f"QR_{i:06d}.png")
+
+        generar_qr_transparente(
+            texto=texto_qr, salida=qr_path, color=(r_qr, g_qr, b_qr)
+        )
+
+        qr_por_bloque.append(
+            {
+                "path": qr_path,
+                "inicio": inicio_real,
+                "fin": fin_real,
+                "bloque": i,
+            }
+        )
+
     timeline = fin_real
 
     if i - 1 < len(pausas):
@@ -1125,7 +1208,12 @@ for i, bloque in enumerate(bloques, 1):
         f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% | Edad Lunar ➤ {edad_luna:.1f} Días | Distancia A Tierra ➤ {distancia_km:,.0f} KM • • • • • • • • • • \033[0m\n\n"
         f"\033[38;2;255;255;255m > PR ➤ {restante_pct:06.2f}% | {barra} | PC ➤ {progreso:06.2f}%\033[0m\n"
         f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
-        f"\033[38;2;0;255;255m > Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs | Tiempo Necesario Para Generar 1 Seg De Audio ➤ {rtf_bloque:.2f} Segs\n"
+        + (
+            f"\033[38;2;255;200;0m > Código QR ➤ Generado Correctamente Para El Bloque {i:06d}\033[0m\n"
+            if usar_qr and i != total_bloques
+            else ""
+        )
+        + f"\033[38;2;0;255;255m > Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs | Tiempo Necesario Para Generar 1 Seg De Audio ➤ {rtf_bloque:.2f} Segs\n"
         f"\033[38;2;255;80;80m > Estado Del Bloque ➤ {estado_bloque}\033[0m\n"
         f"\033[38;2;255;120;120m > Bloques Sospechosos Detectados ➤ {bloques_sospechosos_total}\033[0m\n"
         f"\033[38;2;180;90;255m > Bloques Por Segundo ➤ {(len(archivos) / (time.time() - inicio) if (time.time() - inicio) > 0 else 0):.5f}\033[0m\n"
@@ -1167,7 +1255,12 @@ for i, bloque in enumerate(bloques, 1):
             f"P.Res ➤ {restante_pct:.2f}%\n"
             f"P.Com ➤ {progreso:.2f}%\n\n"
             f"Bloque ➤ [ {i:06d} / {total_bloques:06d} ]\n"
-            f"ETA ➤ {formatear_tiempo(eta)}\n\n"
+            + (
+                f"Código QR ➤ Correcto Para El Bloque {i:06d}\n"
+                if usar_qr and i != total_bloques
+                else ""
+            )
+            + f"ETA ➤ {formatear_tiempo(eta)}\n\n"
             f"Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs\n"
             f"RTF ➤ {rtf_bloque:.2f}x\n\n"
             f"Estado ➤ {estado_bloque}\n"
@@ -1422,7 +1515,9 @@ print("\n--- Limpiando Archivos Temporales ---", flush=True)
 for archivo in archivos:
 
     try:
-        if archivo.startswith("MvIiIaX_Bloque_") and archivo.endswith(".wav"):
+        if os.path.basename(archivo).startswith("MvIiIaX_Bloque_") and archivo.endswith(
+            ".wav"
+        ):
             os.remove(archivo)
             print(f"\n- Fichero Eliminado ➤ {archivo}", flush=True)
     except Exception as e:
@@ -1796,6 +1891,8 @@ if usar_video:
         f"- Vídeo Seleccionado Como Fondo Del Vídeo Final ➤ {os.path.basename(video_fondo)}\n"
     )
 
+    print(f"- QRs Dinámicos Con Texto Del Bloque ➤ {'ON' if usar_qr else 'OFF'}\n")
+
     if not os.path.exists(video_fondo):
         print(f"\n- No Existe El Vídeo ➤ {video_fondo}\n")
         exit()
@@ -1956,6 +2053,45 @@ if usar_video:
         )
 
     filtro_hud_m8ax = ",".join(drawtext_hud_m8ax)
+    filtro_qrs = ""
+    video_base_qr = "[sub]"
+
+    if usar_qr:
+
+        for idx_qr, qr in enumerate(qr_por_bloque):
+
+            if qr["bloque"] in bloques_fallidos_set:
+                continue
+
+            salida_tmp = f"[qrout{idx_qr}]"
+
+            qr_path = qr["path"].replace("\\", "/")
+
+            filtro_qrs += (
+                f"movie='{qr_path}',"
+                f"scale=200:-1,"
+                f"format=rgba,"
+                f"colorchannelmixer=aa=0.70"
+                f"[qr{idx_qr}];"
+                f"{video_base_qr}"
+                f"drawbox="
+                f"x=20:"
+                f"y=50:"
+                f"w=200:"
+                f"h=200:"
+                f"color=black@0.45:"
+                f"t=fill:"
+                f"enable='between(t,{qr['inicio']},{qr['fin']})'"
+                f"[qrbg{idx_qr}];"
+                f"[qrbg{idx_qr}]"
+                f"[qr{idx_qr}]"
+                f"overlay="
+                f"20:50:"
+                f"enable='between(t,{qr['inicio']},{qr['fin']})'"
+                f"{salida_tmp};"
+            )
+
+            video_base_qr = salida_tmp
 
     ultimo_inicio = subtitulos_srt[-1][1]
     ultimo_fin = subtitulos_srt[-1][2]
@@ -1997,6 +2133,23 @@ if usar_video:
         f"shadowx=3:"
         f"shadowy=3:"
         f"shadowcolor=black@0.8:"
+        f"alpha='if(lt(t,{ultimo_inicio}),0,"
+        f"if(lt(t,{ultimo_fin}),1,0))'"
+    )
+
+    drawtext_gracias = (
+        f"drawtext="
+        f"text='Gracias Por Escuchar...':"
+        f"fontcolor=#{random.randint(120,255):02X}{random.randint(120,255):02X}{random.randint(120,255):02X}@0.95:"
+        f"fontsize=38:"
+        f"fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
+        f"x=W-text_w-210:"
+        f"y=245:"
+        f"borderw=3:"
+        f"bordercolor=black@0.85:"
+        f"shadowx=4:"
+        f"shadowy=4:"
+        f"shadowcolor=black@0.85:"
         f"alpha='if(lt(t,{ultimo_inicio}),0,"
         f"if(lt(t,{ultimo_fin}),1,0))'"
     )
@@ -2221,17 +2374,22 @@ if usar_video:
         fade_inicio = 5
         fade_duracion = 10
 
+    if usar_qr:
+        video_input_final = f"{filtro_qrs}{video_base_qr}"
+    else:
+        video_input_final = "[sub]"
+
     filtro_completo = (
         f"{filtro_visual}"
         f"[0:v]subtitles='{SRT_FFMPEG}':"
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax}"
+        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{drawtext_gracias}"
         f"[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
-        f"[sub]drawbox="
+        f"{video_input_final}drawbox="
         f"x=iw-590:"
         f"y=30:"
         f"w=370:"
@@ -2248,11 +2406,11 @@ if usar_video:
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax}"
+        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{drawtext_gracias}"
         f"[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
-        f"[sub][logo_small]overlay=W-w-25:25:format=auto[tmp];"
+        f"{video_input_final}[logo_small]overlay=W-w-25:25:format=auto[tmp];"
         f"[tmp][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[v]"
     )
 
@@ -2332,7 +2490,7 @@ if usar_video:
         "-metadata",
         f"description={'No Hay Música De Fondo | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Mono' if not usar_musica else f'Fondo Musical ➤ {os.path.basename(ruta_musica)} | Volumen Base ➤ 0.15 | Reducción Automática ( Ducking ) ➤ Activado | Umbral ➤ 0.03 | Intensidad ➤ 5 | Ataque ➤ 40ms | Recuperación ➤ 400ms | Voz ➤ Mono A Estéreo ( Centrada ) | Mezcla ➤ amix | Duración Final ➤ Igual A La Voz | Música En Bucle ➤ Sí | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Estéreo'}",
         "-metadata",
-        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Logo ➤ {os.path.basename(logo_m8ax)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
+        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Logo ➤ {os.path.basename(logo_m8ax)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | QRs Dinámicos ➤ {'ON' if usar_qr else 'OFF'} | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
         "-metadata",
         "genre=--- M8AX XTTS VoZ ---",
         "-metadata",
@@ -2584,6 +2742,19 @@ print(
 
 if usar_video:
 
+    if usar_qr:
+
+        print("- QRs Dinámicos Eliminados Correctamente\n")
+
+        for archivo_qr in os.listdir("M8AX-QRs"):
+
+            try:
+                ruta_qr = os.path.join("M8AX-QRs", archivo_qr)
+                if os.path.isfile(ruta_qr):
+                    os.remove(ruta_qr)
+            except Exception as e:
+                print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
+
     print(
         f"- RTF Producción Final ➤ {rtf_total_final:.2f}x - "
         f"( Motor XTTS + Audio WAV + Conversión A OPUS + Vídeo Final MP4 + Pipeline Completo )\n"
@@ -2696,6 +2867,7 @@ if (
             f"• Narrador ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
             f"• Vúmetro ➤ {'ON' if mostrar_vumeter else 'OFF'}\n"
             f"• Visualizador ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'}\n"
+            f"• QRs Dinámicos ➤ {'ON' if usar_qr else 'OFF'}\n"
             if usar_video
             else ""
         )
