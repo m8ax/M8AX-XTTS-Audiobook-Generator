@@ -580,6 +580,8 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("TTS").setLevel(logging.DEBUG)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+LENGUAJE = "es"
+
 stop_event = threading.Event()
 
 os.system("cls")
@@ -1081,11 +1083,17 @@ for i, bloque in enumerate(bloques, 1):
         flush=True,
     )
 
+    idioma_bloque = LENGUAJE
+
+    if i == total_bloques:
+
+        idioma_bloque = "es"
+
     try:
         tts.tts_to_file(
             text=bloque,
             speaker_wav=voz_actual,
-            language="es",
+            language=idioma_bloque,
             file_path=nombre_salida,
             split_sentences=False,
         )
@@ -1136,7 +1144,7 @@ for i, bloque in enumerate(bloques, 1):
         g_qr = random.randint(150, 255)
         b_qr = random.randint(150, 255)
 
-        qr_path = os.path.join("M8AX-QRs", f"QR_{i:06d}.png")
+        qr_path = os.path.join("M8AX-QRs", f"MvIiIaX_QR_{i:06d}.png")
 
         generar_qr_transparente(
             texto=texto_qr, salida=qr_path, color=(r_qr, g_qr, b_qr)
@@ -2708,6 +2716,7 @@ if os.path.exists(SRT_SALIDA):
     )
 
 else:
+
     print("- No Se Generó El Fichero SRT De Subtítulos\n")
 
 if nombre_grafica:
@@ -2717,6 +2726,7 @@ if nombre_grafica:
     )
 
 else:
+
     print("- No Se Generaron Gráficas PRO\n")
 
 if os.path.exists("M8AX-LoG-XTTS.log"):
@@ -2726,6 +2736,7 @@ if os.path.exists("M8AX-LoG-XTTS.log"):
     )
 
 else:
+
     print("- No Se Generó El Fichero De Log\n")
 
 print(f"--- RTFs Del Sistema Usando ➤ {device_nombre} ---\n")
@@ -2742,19 +2753,6 @@ print(
 
 if usar_video:
 
-    if usar_qr:
-
-        print("- QRs Dinámicos Eliminados Correctamente\n")
-
-        for archivo_qr in os.listdir("M8AX-QRs"):
-
-            try:
-                ruta_qr = os.path.join("M8AX-QRs", archivo_qr)
-                if os.path.isfile(ruta_qr):
-                    os.remove(ruta_qr)
-            except Exception as e:
-                print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
-
     print(
         f"- RTF Producción Final ➤ {rtf_total_final:.2f}x - "
         f"( Motor XTTS + Audio WAV + Conversión A OPUS + Vídeo Final MP4 + Pipeline Completo )\n"
@@ -2765,6 +2763,19 @@ if usar_video:
         f"{formatear_tiempo(tiempo_extra_produccion)} - "
         f"( Vídeo Final MP4 + Pipeline Completo )\n"
     )
+
+    if usar_qr:
+
+        for archivo_qr in os.listdir("M8AX-QRs"):
+
+            try:
+                ruta_qr = os.path.join("M8AX-QRs", archivo_qr)
+                if os.path.isfile(ruta_qr):
+                    os.remove(ruta_qr)
+            except Exception as e:
+                print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
+
+        print("- QRs Dinámicos Eliminados Correctamente\n")
 
 if (
     TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
@@ -2917,7 +2928,7 @@ if (
             tts.tts_to_file(
                 text=mensaje_audio_final,
                 speaker_wav=voz_actual,
-                language="es",
+                language=idioma_bloque,
                 file_path="M8AX_Final.wav",
                 split_sentences=True,
             )
