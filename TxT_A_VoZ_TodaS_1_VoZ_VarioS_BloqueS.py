@@ -26,17 +26,46 @@
 # Formato De Salida Del Fichero De Gráficas ➤ M8AX_Gráficas_DD-MM-YYYY_HH-MM-SS.webp.
 # Formato Del Fichero De Log Permanente ➤ M8AX-LoG-XTTS.log.
 # Formato Temporal De Bloques WAV ➤ MvIiIaX_Bloque_XXXXXX.wav.
+# Fichero Temporal De Debug De Bloques ➤ M8AX-Bloques_Debug.TxT.
+# Contiene Todos Los Bloques Generados Con Su Número, Longitud Y Texto Completo.
+# Se Genera Automáticamente Si DEBUG = True.
+# Al Final Del Script Se Te Preguntará Si Quieres Borrarlo O Conservarlo.
 # Formato Temporal Del WAV De Unión Final ➤ m8ax.wav.
-# Creado El 10/05/2026 A Las 00:00:00 En 85h De Programación.
+# Integración Con Telegram ➤ Envío Automático De Estadísticas Por Bloque Y Resumen Final En Audio XTTS.
+# Fichero Temporal WAV De Estadísticas Para Telegram ➤ M8AX_Final.wav.
+# Contiene El Audio Con El Resumen Final De Estadísticas Generado Por XTTS.
+# Se Convierte A OPUS Y Se Envía A Tu Telegram Al Final Del Proceso.
+# Se Elimina Automáticamente Al Final Del Script.
+# Fichero Temporal OPUS De Estadísticas Para Telegram ➤ M8AX_Final.opus.
+# Versión Comprimida En OPUS Del Audio De Estadísticas Finales.
+# Se Envía Directamente A Tu Telegram Como Mensaje De Audio.
+# Se Elimina Automáticamente Al Final Del Script.
+# Script Temporal Filter Complex De FFmpeg ➤ M8AX_Filtro_Complejo.TxT.
+# Contiene Todo El Pipeline Visual Del Vídeo Final MP4.
+# Incluye Subtítulos, HUDs, Narradores Dinámicos, Logos, QRs Dinámicos, Vumetros Y Efectos Visuales.
+# Se Genera Automáticamente Y Se Elimina Al Final Del Script.
+# HUD Y Narrador Realtime Via ZeroMQ ➤ Sin Ficheros En Disco, Sin Bloqueos, Sin reload=1 En FFmpeg.
+# QRs Pregenerados Como Vídeo ➤ M8AX-QRs/M8AX_QR_Final.mp4 ( Generado Durante El Proceso XTTS En Paralelo ).
+# Cada QR Dura Lo Que Dura Su Bloque + La Pausa Posterior, Manteniendo El FadeOut Y Cuadrando Con El OPUS Final.
+# Compatible Con AudioLibros De Cualquier Tamaño Sin Saturar El Filter Complex.
+# El Vídeo QR Final Se Elimina Automáticamente Al Terminar El Script.
+# Mensaje Animado De Suscripción ➤ Texto Aleatorio Entre 15 Mensajes En Los Primeros Bloques Del Vídeo.
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Creado El 01/06/2026 A Las 00:00:00 En 115h De Programación.
 # By M8AX.
+# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 from datetime import datetime
 from TTS.api import TTS
 from PIL import Image
+from PIL import ImageDraw
 import subprocess
+import warnings
 import statistics
 import logging
 import qrcode
+import bisect
 import cpuinfo
 import requests
 import contextlib
@@ -50,6 +79,7 @@ import shutil
 import ephem
 import time
 import sys
+import zmq
 import os
 
 def telegram_m8ax(mensaje):
@@ -558,7 +588,7 @@ def generar_qr_transparente(texto, salida, color=(255, 255, 255)):
 
     img = qr.make_image(fill_color="white", back_color="black").convert("RGBA")
 
-    datos = img.getdata()
+    datos = img.get_flattened_data()
 
     nuevos = []
 
@@ -574,11 +604,22 @@ def generar_qr_transparente(texto, salida, color=(255, 255, 255)):
 
     img.putdata(nuevos)
 
+    draw = ImageDraw.Draw(img)
+    grosor = 3
+    draw.rectangle(
+        [0, 0, img.width - 1, img.height - 1],
+        outline=(color[0], color[1], color[2], 255),
+        width=grosor,
+    )
+
     img.save(salida)
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("TTS").setLevel(logging.DEBUG)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", module="PIL")
+warnings.filterwarnings("ignore", message=".*getdata is deprecated.*")
 
 LENGUAJE = "es"
 
@@ -727,6 +768,12 @@ if usar_musica:
     print(
         f"\n---/// Música Seleccionada ➤ {os.path.basename(ruta_musica)} \\\\\\---\n\n--------------------------------------------------------------------------------\n"
     )
+    if not os.path.exists(ruta_musica):
+        print(f"❌ Error ➤ No Se Encuentra La Música ➤ {ruta_musica}")
+        print(
+            "👉 Asegúrate De Que Existan Ficheros MP3 En La Carpeta M8AX-Música_Fondo"
+        )
+        exit()
 else:
     print(
         f"\n---/// Sin Música De Fondo \\\\\\---\n\n--------------------------------------------------------------------------------\n"
@@ -770,9 +817,13 @@ if usar_video:
     mostrar_vumeter = opcion_vumeter == "1"
 
     if mostrar_vumeter:
-        print("\n---/// El Vídeo Se Generará Con Vumetro \\\\\\---")
+        print(
+            "\n---/// El Vídeo Se Generará Con Vumetro \\\\\\---\n\n--------------------------------------------------------------------------------"
+        )
     else:
-        print("\n---/// El Vídeo Se Generará Sin Vumetro \\\\\\---")
+        print(
+            "\n---/// El Vídeo Se Generará Sin Vumetro \\\\\\---\n\n--------------------------------------------------------------------------------"
+        )
 
     print("\n----- ¿ Quieres Mostrar QRs Dinámicos En El Vídeo ? -----\n")
     print("1. ➤ Sí\n")
@@ -783,9 +834,13 @@ if usar_video:
     usar_qr = opcion_qr == "1"
 
     if usar_qr:
-        print("\n---/// El Vídeo Se Generará Con QR Dinámicos Por Bloque \\\\\\---")
+        print(
+            "\n---/// El Vídeo Se Generará Con QR Dinámicos Por Bloque \\\\\\---\n\n-------------------------------A R R A N C A N D O------------------------------"
+        )
     else:
-        print("\n---/// El Vídeo Se Generará Sin QR Dinámicos \\\\\\---")
+        print(
+            "\n---/// El Vídeo Se Generará Sin QR Dinámicos \\\\\\---\n\n-------------------------------A R R A N C A N D O------------------------------"
+        )
 else:
     mostrar_narrador = False
     mostrar_vumeter = False
@@ -883,6 +938,12 @@ VOCES = [
     "m8ax-voces/Voz_Universo.wav",
 ]
 
+for wav in VOCES:
+    if not os.path.exists(wav):
+        print(f"❌ Error ➤ No Se Encuentra El WAV De Voz ➤ {wav}")
+        print("👉 Asegúrate De Que El Fichero WAV Esté En La Carpeta m8ax-voces")
+        exit()
+
 TXT_ENTRADA = "m8ax.txt"
 SALIDA_WAV = "m8ax.wav"
 
@@ -979,13 +1040,13 @@ if texto.strip().upper().rstrip(".!?").endswith("FIN"):
     texto += (
         f" del audiolibro por Eme viax, guión, Eme ocho a equis. "
         f"Procesado usando {device_nombre_ffmpeg}. "
-        "En honor a EMEDEDEDEDE. Mi madre."
+        "En honor a EMEDEDEDEDE. Mi Madre."
     )
 else:
     texto += (
         f"\n\nFin del audiolibro por Eme viax, guión, Eme ocho a equis. "
         f"Procesado usando {device_nombre_ffmpeg}. "
-        "En honor a EMEDEDEDEDE. Mi madre."
+        "En honor a EMEDEDEDEDE. Mi Madre."
     )
 
 bloques = dividir_texto(texto)
@@ -1040,8 +1101,42 @@ bloques_sospechosos_total = 0
 tam_wavs_total = 0
 subtitulos_srt = []
 qr_por_bloque = []
+qr_video_final = os.path.join("M8AX-QRs", "M8AX_QR_Final.mp4")
 chars_totales_actual = 0
 ultimo_telegram = time.time()
+
+if usar_qr:
+    encoders_qr = [
+        ("hevc_nvenc", ["-preset", "p5"]),
+        ("h264_nvenc", ["-preset", "p5"]),
+        ("hevc_qsv", ["-preset", "fast"]),
+        ("h264_qsv", ["-preset", "fast"]),
+        ("hevc_amf", ["-quality", "balanced"]),
+        ("libx265", ["-preset", "medium"]),
+    ]
+    encoder_qr = "libx264"
+    for enc, args in encoders_qr:
+        test_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=1280x720:rate=30",
+            "-t",
+            "1",
+            "-c:v",
+            enc,
+            "-f",
+            "null",
+            "-",
+        ]
+        test = subprocess.run(test_cmd, capture_output=True, text=True)
+        if test.returncode == 0:
+            encoder_qr = enc
+            break
 
 for i, bloque in enumerate(bloques, 1):
 
@@ -1132,11 +1227,19 @@ for i, bloque in enumerate(bloques, 1):
     fin_real = inicio_real + duracion_audio
     subtitulos_srt.append((i, inicio_real, fin_real, bloque.strip()))
 
-    if usar_qr and i != total_bloques:
+    if usar_qr:
 
         texto_qr = (
             f"[ Bloque {i} De {total_bloques} ]\n\n"
-            + bloque.strip()
+            + (
+                (
+                    "Fin Del Audiolibro Por MvIiIaX-M8AX. "
+                    f"Procesado Usando {device_nombre_ffmpeg}. "
+                    "En Honor A MDDD. Mi Madre."
+                )
+                if i == total_bloques
+                else bloque.strip()
+            )
             + "\n\nSi Te Apetece Apoyar El Canal ➤ https://www.paypal.com/paypalme/m8ax"
         )
 
@@ -1148,6 +1251,37 @@ for i, bloque in enumerate(bloques, 1):
 
         generar_qr_transparente(
             texto=texto_qr, salida=qr_path, color=(r_qr, g_qr, b_qr)
+        )
+
+        duracion_qr = fin_real - inicio_real
+
+        if i - 1 < len(pausas):
+            duracion_qr += pausas[i - 1]
+
+        fade_start_qr = max(0, duracion_qr - 0.5)
+        qr_clip_path = os.path.join("M8AX-QRs", f"MvIiIaX_QR_{i:06d}.mp4")
+
+        cmd_qr_clip = [
+            "ffmpeg",
+            "-loop",
+            "1",
+            "-i",
+            qr_path,
+            "-t",
+            str(duracion_qr),
+            "-vf",
+            f"scale=200:200:flags=neighbor,fade=t=out:st={fade_start_qr:.3f}:d=0.5",
+            "-c:v",
+            encoder_qr,
+            "-pix_fmt",
+            "yuv420p",
+            "-an",
+            "-y",
+            qr_clip_path,
+        ]
+
+        subprocess.run(
+            cmd_qr_clip, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
 
         qr_por_bloque.append(
@@ -1218,7 +1352,7 @@ for i, bloque in enumerate(bloques, 1):
         f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
         + (
             f"\033[38;2;255;200;0m > Código QR ➤ Generado Correctamente Para El Bloque {i:06d}\033[0m\n"
-            if usar_qr and i != total_bloques
+            if usar_qr
             else ""
         )
         + f"\033[38;2;0;255;255m > Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs | Tiempo Necesario Para Generar 1 Seg De Audio ➤ {rtf_bloque:.2f} Segs\n"
@@ -1263,11 +1397,7 @@ for i, bloque in enumerate(bloques, 1):
             f"P.Res ➤ {restante_pct:.2f}%\n"
             f"P.Com ➤ {progreso:.2f}%\n\n"
             f"Bloque ➤ [ {i:06d} / {total_bloques:06d} ]\n"
-            + (
-                f"Código QR ➤ Correcto Para El Bloque {i:06d}\n"
-                if usar_qr and i != total_bloques
-                else ""
-            )
+            + (f"Código QR ➤ Correcto Para El Bloque {i:06d}\n" if usar_qr else "")
             + f"ETA ➤ {formatear_tiempo(eta)}\n\n"
             f"Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs\n"
             f"RTF ➤ {rtf_bloque:.2f}x\n\n"
@@ -1309,6 +1439,8 @@ print("--- Uniendo WAVS ---", flush=True)
 
 pausas = pausas[: len(archivos) - 1]
 
+inicios_hud = [sub[1] for sub in subtitulos_srt]
+
 if not archivos:
     print("\n- No Se Generaron Archivos WAV")
     exit()
@@ -1345,7 +1477,6 @@ tiempo_base_proceso = time.time() - inicio
 album_voces = ", ".join(voces_usadas)
 fecha_archivo = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
 fecha_bonita_opus = fecha_espanol().replace(" ➤ ", " A Las ")
-SALIDA_OPUS = f"M8AX_{fecha_archivo}.opus"
 
 tamano = (
     os.path.getsize(SALIDA_WAV) / (1024 * 1024) if os.path.exists(SALIDA_WAV) else 0
@@ -1520,6 +1651,8 @@ if not os.path.exists(SALIDA_OPUS):
 
 print("\n--- Limpiando Archivos Temporales ---", flush=True)
 
+wavs_borrados = 0
+
 for archivo in archivos:
 
     try:
@@ -1527,9 +1660,12 @@ for archivo in archivos:
             ".wav"
         ):
             os.remove(archivo)
-            print(f"\n- Fichero Eliminado ➤ {archivo}", flush=True)
+            wavs_borrados += 1
+
     except Exception as e:
         print(f"\n- Error Al Borrar {archivo} ➤ {e}", flush=True)
+
+print(f"\n- Bloques WAV Eliminados ➤ {wavs_borrados}", flush=True)
 
 try:
     os.remove(SALIDA_WAV)
@@ -1728,7 +1864,7 @@ for i in range(total_bloques):
         timestamp = formatear_tiempo(tiempo_acumulado)
 
         print(
-            f"  · {contador} · Bloque Nº ➤ {i+1} | Duración ➤ {d:.2f} Segs | Posición ➤ {timestamp}\n"
+            f"  · {contador} · Bloque Nº ➤ {i+1} | Duración ➤ {d:.2f} Segs | Posición ➤ {timestamp} Hasta {formatear_tiempo(tiempo_acumulado + d)}\n"
         )
 
         print(f"    ↳ Texto ➤ {bloques[i]}\n")
@@ -1867,30 +2003,42 @@ nombre_grafica = generar_graficas_pro(
     pausas,
 )
 
+if usar_qr:
+
+    print(f"- Pregenerando Video De Códigos QR\n")
+
+    lista_clips_qr = os.path.join("M8AX-QRs", "M8AX-Lista_Clips_QR.TxT")
+
+    with open(lista_clips_qr, "w", encoding="utf-8") as f:
+        for qr in qr_por_bloque:
+            clip_path = qr["path"].replace(".png", ".mp4")
+            f.write(f"file '{os.path.abspath(clip_path)}'\n")
+
+    cmd_concat_qr = [
+        "ffmpeg",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        lista_clips_qr,
+        "-c",
+        "copy",
+        "-y",
+        qr_video_final,
+    ]
+
+    subprocess.run(cmd_concat_qr, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(
+        f"- Vídeo QR Pregenerado ➤ {qr_video_final} - ( {tamano_m8ax(qr_video_final)} )\n"
+    )
+
 if usar_video:
 
     print("--- Generando Vídeo MP4 Con Subtítulos Integrados ---\n")
 
-    if mostrar_narrador:
-        eventos_voces = []
-        voz_anterior = None
-
-        for idx, (voz, duracion) in enumerate(zip(conteo_voces, tiempo_por_bloque)):
-
-            inicio = subtitulos_srt[idx][1]
-
-            if voz != voz_anterior and idx != len(subtitulos_srt) - 1:
-
-                eventos_voces.append(
-                    {
-                        "voz": os.path.splitext(voz)[0].replace("_", " "),
-                        "inicio": inicio,
-                    }
-                )
-
-                voz_anterior = voz
-
-    num_video = random.randint(1, 50)
+    num_video = random.randint(1, 60)
     video_fondo = os.path.join("M8AX-Vídeo_Subtítulos", f"VídeoFondo{num_video}.mp4")
     nombre_video = os.path.splitext(os.path.basename(video_fondo))[0]
     SALIDA_MP4 = f"{os.path.splitext(SALIDA_OPUS)[0]}_{nombre_video}.mp4"
@@ -1902,7 +2050,10 @@ if usar_video:
     print(f"- QRs Dinámicos Con Texto Del Bloque ➤ {'ON' if usar_qr else 'OFF'}\n")
 
     if not os.path.exists(video_fondo):
-        print(f"\n- No Existe El Vídeo ➤ {video_fondo}\n")
+        print(f"❌ Error ➤ No Se Encuentra El Vídeo De Fondo ➤ {video_fondo}")
+        print(
+            "👉 Asegúrate De Que Existan Ficheros MP4 En La Carpeta M8AX-Vídeo_Subtítulos"
+        )
         exit()
 
     SRT_FFMPEG = SRT_SALIDA.replace("\\", "/").replace(":", "\\:")
@@ -1947,7 +2098,7 @@ if usar_video:
             print(f"- Encoder Compatible Detectado ➤ {encoder_video}\n")
             break
 
-    num_logo = random.randint(1, 16)
+    num_logo = random.randint(1, 20)
 
     logo_m8ax = None
 
@@ -1962,147 +2113,130 @@ if usar_video:
         f"- Logo Seleccionado Para Parte Superior Derecha Del Vídeo Final ➤ {os.path.basename(logo_m8ax)}\n"
     )
 
-    if mostrar_narrador:
-        drawtext_voces = []
+    print(f"- HUD En Vídeo ➤ ON\n")
 
-        for evento in eventos_voces:
-            voz = evento["voz"]
-            inicio = evento["inicio"]
-            fade_out = inicio + 5
+    color_hud = (
+        f"#{random.randint(100,255):02X}"
+        f"{random.randint(100,255):02X}"
+        f"{random.randint(100,255):02X}"
+    )
 
-            r = random.randint(50, 255)
-            g = random.randint(50, 255)
-            b = random.randint(50, 255)
+    filtro_hud_m8ax = (
+        "drawtext@hud="
+        "text=' ':"
+        "expansion=none:"
+        "fontfile='C\\:/Windows/Fonts/consola.ttf':"
+        "fontsize=22:"
+        f"fontcolor={color_hud}:"
+        "x=58:"
+        "y=5:"
+        "box=1:"
+        "boxcolor=black@0.12:"
+        "boxborderw=6:"
+        "borderw=1:"
+        "bordercolor=black@0.7:"
+        "shadowx=2:"
+        "shadowy=2:"
+        "shadowcolor=black@0.7"
+    )
 
-            color_hex = f"{r:02X}{g:02X}{b:02X}"
+    filtro_hud_m8ax_dias = (
+        "drawtext@dias="
+        "text=' ':"
+        "expansion=none:"
+        "fontfile='C\\:/Windows/Fonts/consola.ttf':"
+        "fontsize=22:"
+        f"fontcolor={color_hud}:"
+        "x=5:"
+        "y=5:"
+        "box=1:"
+        "boxcolor=black@0.12:"
+        "boxborderw=6:"
+        "borderw=1:"
+        "bordercolor=black@0.7:"
+        "shadowx=2:"
+        "shadowy=2:"
+        "shadowcolor=black@0.7"
+    )
 
-            drawtext_voces.append(
-                f"drawtext="
-                f"text='--- Narrador {voz} ---':"
-                f"fontcolor=#{color_hex}:"
-                f"fontsize=42:"
-                f"fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
-                f"x=(w-text_w)/2:"
-                f"y=40:"
-                f"borderw=2:"
-                f"bordercolor=black@0.9:"
-                f"shadowx=4:"
-                f"shadowy=4:"
-                f"shadowcolor=black@0.85:"
-                f"alpha='if(lt(t,{inicio}),0,"
-                f"if(lt(t,{fade_out}),1-((t-{inicio})/5),0))'"
-            )
-
-        filtro_voces = ",".join(drawtext_voces)
-    else:
-        filtro_voces = ""
-
-    drawtext_hud_m8ax = []
-
-    fecha_hud = datetime.now().strftime("%d%m%Y")
-
-    color_hud = f"#{random.randint(100,255):02X}{random.randint(100,255):02X}{random.randint(100,255):02X}"
-
-    for idx_hud, (num_hud, inicio_hud, fin_hud, texto_hud_sub) in enumerate(
-        subtitulos_srt
-    ):
-
-        if idx_hud >= len(duraciones_audio):
-            break
-
-        hud_timeline_txt = formatear_tiempo(inicio_hud)
-        hud_timeline_txt = hud_timeline_txt.replace(":", r"\:")
-
-        hud_fin_txt = formatear_tiempo(fin_hud)
-        hud_fin_txt = hud_fin_txt.replace(":", r"\:")
-
-        hud_progreso_audio = (
-            ((idx_hud + 1) / total_bloques) * 100 if total_bloques > 0 else 0
-        )
-
-        hud_chars = len(texto_hud_sub)
-
-        hud_duracion_audio = duraciones_audio[idx_hud]
-
-        hud_velocidad_habla = (
-            hud_chars / hud_duracion_audio if hud_duracion_audio > 0 else 0
-        )
-
-        if "d" in hud_timeline_txt or "d" in hud_fin_txt:
-            x_hud = 15
-        else:
-            x_hud = 58
-
-        hud_texto_final = (
-            f"M8AX XTTS - [ {fecha_hud} ] | "
-            f"[ {idx_hud+1:06d} / {total_bloques:06d} ] | "
-            f"[ {hud_timeline_txt} > {hud_fin_txt} ] | "
-            f"{hud_progreso_audio:.2f} \\\\% | "
-            f"{hud_velocidad_habla:.2f} CPS"
-        )
-
-        drawtext_hud_m8ax.append(
-            f"drawtext="
-            f"text='{hud_texto_final}':"
-            f"fontfile='C\\:/Windows/Fonts/consola.ttf':"
-            f"fontsize=22:"
-            f"fontcolor={color_hud}:"
-            f"x={x_hud}:"
-            f"y=5:"
-            f"box=1:"
-            f"boxcolor=black@0.12:"
-            f"boxborderw=6:"
-            f"borderw=1:"
-            f"bordercolor=black@0.7:"
-            f"shadowx=2:"
-            f"shadowy=2:"
-            f"shadowcolor=black@0.7:"
-            f"enable='between(t,{inicio_hud},{fin_hud})'"
-        )
-
-    filtro_hud_m8ax = ",".join(drawtext_hud_m8ax)
     filtro_qrs = ""
-    video_base_qr = "[sub]"
 
     if usar_qr:
 
-        for idx_qr, qr in enumerate(qr_por_bloque):
+        filtro_qrs = (
+            "[3:v]"
+            "format=rgba,"
+            "colorchannelmixer=aa=0.70"
+            "[qr];"
+            "[sub]drawbox="
+            "x=25:"
+            "y=50:"
+            "w=200:"
+            "h=200:"
+            "color=black@0.45:"
+            "t=fill"
+            "[qrbg];"
+            "[qrbg][qr]"
+            "overlay=25:50"
+            "[qrout];"
+        )
 
-            if qr["bloque"] in bloques_fallidos_set:
-                continue
+        video_input_final = "[qrout]"
 
-            salida_tmp = f"[qrout{idx_qr}]"
+    else:
 
-            qr_path = qr["path"].replace("\\", "/")
-
-            filtro_qrs += (
-                f"movie='{qr_path}',"
-                f"scale=200:-1,"
-                f"format=rgba,"
-                f"colorchannelmixer=aa=0.70"
-                f"[qr{idx_qr}];"
-                f"{video_base_qr}"
-                f"drawbox="
-                f"x=20:"
-                f"y=50:"
-                f"w=200:"
-                f"h=200:"
-                f"color=black@0.45:"
-                f"t=fill:"
-                f"enable='between(t,{qr['inicio']},{qr['fin']})'"
-                f"[qrbg{idx_qr}];"
-                f"[qrbg{idx_qr}]"
-                f"[qr{idx_qr}]"
-                f"overlay="
-                f"20:50:"
-                f"enable='between(t,{qr['inicio']},{qr['fin']})'"
-                f"{salida_tmp};"
-            )
-
-            video_base_qr = salida_tmp
+        video_input_final = "[sub]"
 
     ultimo_inicio = subtitulos_srt[-1][1]
     ultimo_fin = subtitulos_srt[-1][2]
+
+    if total_bloques > 1:
+        inicio_suscribete = subtitulos_srt[0][1]
+        fin_suscribete = subtitulos_srt[min(4, total_bloques - 2)][2]
+        fin_suscribete = min(fin_suscribete, ultimo_inicio - 0.5)
+
+        drawtext_suscribete = (
+            f"drawtext="
+            f"text='{random.choice(['¡ Suscríbete A Mi Canal !', '¡ Dale Like Y Suscríbete !', '¡ Disfruta De La Lectura !', '¡ Apoya Mi Canal !', '¡ No Olvides Escanear El QR !', '¡ Activa La Campana !', '¡ Comparte Este AudioLibro !', '¡ Déjame Tu Comentario !', '¡ Gracias Por Estar Aquí !', '¡ Comparte Si Te Gusta !', '¡ Apoya El Canal Con Un Like !', '¡ Nos Vemos En El Siguiente !', '¡ Sigue Escuchando Con M8AX !', '¡ Que Disfrutes La Lectura !', '¡ Leer Es Bueno !'])}':"
+            f"fontcolor=#{random.randint(120,255):02X}{random.randint(120,255):02X}{random.randint(120,255):02X}@0.95:"
+            f"fontsize=38:"
+            f"fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
+            f"x=W-text_w-210:"
+            f"y=245:"
+            f"borderw=3:"
+            f"bordercolor=black@0.85:"
+            f"shadowx=4:"
+            f"shadowy=4:"
+            f"shadowcolor=black@0.85:"
+            f"enable='between(t,{inicio_suscribete:.3f},{fin_suscribete:.3f})'"
+        )
+    else:
+        drawtext_suscribete = "null"
+
+    mostrar_duracion = total_bloques >= 7
+
+    if mostrar_duracion:
+        inicio_duracion = subtitulos_srt[min(5, total_bloques - 2)][1]
+        fin_duracion = subtitulos_srt[-2][2]
+    else:
+        inicio_duracion = 99999999999
+        fin_duracion = 99999999999
+
+    drawtext_duracion = (
+        f"drawtext="
+        f"text='%{{eif\\:trunc(t/86400)\\:d\\:2}}d\\:%{{eif\\:trunc(mod(t\\,86400)/3600)\\:d\\:2}}h\\:%{{eif\\:trunc(mod(t\\,3600)/60)\\:d\\:2}}m\\:%{{eif\\:trunc(mod(t\\,60))\\:d\\:2}}s':"
+        f"fontcolor=#{random.randint(120,255):02X}{random.randint(120,255):02X}{random.randint(120,255):02X}@0.85:"
+        f"fontsize=32:"
+        f"fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
+        f"x=W-text_w-276:"
+        f"y=245:"
+        f"borderw=2:"
+        f"bordercolor=black@0.85:"
+        f"shadowx=3:"
+        f"shadowy=3:"
+        f"shadowcolor=black@0.85:"
+        f"enable='between(t,{inicio_duracion:.3f},{fin_duracion:.3f})'"
+    )
 
     r = random.randint(65, 255)
     g = random.randint(65, 255)
@@ -2203,6 +2337,27 @@ if usar_video:
 
     print(
         f"- Nombre Del Narrador En El Vídeo ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
+    )
+
+    r_nar = random.randint(50, 255)
+    g_nar = random.randint(50, 255)
+    b_nar = random.randint(50, 255)
+    color_nar = f"#{r_nar:02X}{g_nar:02X}{b_nar:02X}"
+
+    filtro_narrador_realtime = (
+        "drawtext@narrador="
+        "text=' ':"
+        "expansion=none:"
+        "fontfile='C\\:/Windows/Fonts/segoeuib.ttf':"
+        "fontsize=42:"
+        f"fontcolor={color_nar}:"
+        "x=(w-text_w)/2:"
+        "y=40:"
+        "borderw=2:"
+        "bordercolor=black@0.9:"
+        "shadowx=4:"
+        "shadowy=4:"
+        "shadowcolor=black@0.85"
     )
 
     r = random.randint(80, 255)
@@ -2382,19 +2537,38 @@ if usar_video:
         fade_inicio = 5
         fade_duracion = 10
 
-    if usar_qr:
-        video_input_final = f"{filtro_qrs}{video_base_qr}"
-    else:
-        video_input_final = "[sub]"
+    indice_grafica = 4 if usar_qr else 3
+
+    EFECTO_VIDEO = (
+        "Blanco Y Negro"
+        if random.random() >= 0.85
+        else "Normal"
+    )
+
+    print(f"- Efecto Visual En Video Final ➤ {EFECTO_VIDEO.upper()}\n")
+
+    filtro_final_vu = ""
+    filtro_final_sinvu = ""
+
+    salida_vu = "v"
+    salida_sinvu = "v"
+
+    if EFECTO_VIDEO == "Blanco Y Negro":
+
+        filtro_final_vu = "[vtmp]hue=s=0[v];"
+        filtro_final_sinvu = "[vtmp]hue=s=0[v];"
+
+        salida_vu = "vtmp"
+        salida_sinvu = "vtmp"
 
     filtro_completo = (
+        f"{filtro_qrs}"
         f"{filtro_visual}"
         f"[0:v]subtitles='{SRT_FFMPEG}':"
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{drawtext_gracias}"
-        f"[sub];"
+        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
         f"{video_input_final}drawbox="
@@ -2406,20 +2580,26 @@ if usar_video:
         f"t=1[box];"
         f"[box][vu]overlay=W-w-224:36[tmp];"
         f"[tmp][logo_small]overlay=W-w-25:36:format=auto[tmp2];"
-        f"[tmp2][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[v]"
+        f"[tmp2][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[tmp3];"
+        f"[{indice_grafica}:v]scale=1920:1080[graf];"
+        f"[tmp3][graf]overlay=0:0:enable='gte(t,{duracion_opus-0.5})'[{salida_vu}];"
+        f"{filtro_final_vu}"
     )
 
     filtro_completo_sinvu = (
+        f"{filtro_qrs}"
         f"[0:v]subtitles='{SRT_FFMPEG}':"
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_voces if filtro_voces else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{drawtext_gracias}"
-        f"[sub];"
+        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
         f"{video_input_final}[logo_small]overlay=W-w-25:25:format=auto[tmp];"
-        f"[tmp][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[v]"
+        f"[tmp][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[tmp2];"
+        f"[{indice_grafica}:v]scale=1920:1080[graf];"
+        f"[tmp2][graf]overlay=0:0:enable='gte(t,{duracion_opus-0.5})'[{salida_sinvu}];"
+        f"{filtro_final_sinvu}"
     )
 
     filtro_final = ""
@@ -2448,6 +2628,10 @@ if usar_video:
         "-hide_banner",
         "-loglevel",
         "error",
+        "-progress",
+        "pipe:1",
+        "-stats_period",
+        "0.1",
         "-stats",
         "-y",
         "-stream_loop",
@@ -2461,7 +2645,12 @@ if usar_video:
             if logo_m8ax.lower().endswith(".mp4")
             else ["-loop", "1", "-i", logo_m8ax]
         ),
-        "-filter_complex_script",
+        *(["-i", qr_video_final] if usar_qr else []),
+        "-loop",
+        "1",
+        "-i",
+        nombre_grafica,
+        "-/filter_complex",
         "M8AX_Filtro_Complejo.TxT",
         "-map",
         "[v]",
@@ -2498,7 +2687,7 @@ if usar_video:
         "-metadata",
         f"description={'No Hay Música De Fondo | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Mono' if not usar_musica else f'Fondo Musical ➤ {os.path.basename(ruta_musica)} | Volumen Base ➤ 0.15 | Reducción Automática ( Ducking ) ➤ Activado | Umbral ➤ 0.03 | Intensidad ➤ 5 | Ataque ➤ 40ms | Recuperación ➤ 400ms | Voz ➤ Mono A Estéreo ( Centrada ) | Mezcla ➤ amix | Duración Final ➤ Igual A La Voz | Música En Bucle ➤ Sí | Formato ➤ Opus 48kbps | Frecuencia ➤ 24kHz | Canales ➤ Estéreo'}",
         "-metadata",
-        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Logo ➤ {os.path.basename(logo_m8ax)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | QRs Dinámicos ➤ {'ON' if usar_qr else 'OFF'} | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p",
+        f"synopsis=Vídeo De Fondo ➤ {os.path.basename(video_fondo)} | Logo ➤ {os.path.basename(logo_m8ax)} | Bucle Infinito ➤ Sí | Subtítulos Integrados ➤ Sí | QRs Dinámicos ➤ {'ON' if usar_qr else 'OFF'} | Vumetro ➤ {'ON' if mostrar_vumeter else 'OFF'} | Modo VU ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'} | HUD ➤ ON | Narrador ➤ {'ON' if mostrar_narrador else 'OFF'} | Codec ➤ {encoder_video} | Bitrate Vídeo ➤ 2000k | Pixel Format ➤ yuv420p | Efecto Visual ➤ {EFECTO_VIDEO}",
         "-metadata",
         "genre=--- M8AX XTTS VoZ ---",
         "-metadata",
@@ -2532,13 +2721,210 @@ if usar_video:
         ),
     ]
 
+    ffmpeg_clock = 0.0
+
+    def leer_progress_ffmpeg():
+
+        global ffmpeg_clock
+
+        while True:
+
+            linea = res_video.stdout.readline()
+
+            if not linea:
+                break
+
+            linea = linea.strip()
+
+            if linea.startswith("out_time_ms="):
+
+                try:
+                    valor_str = linea.split("=")[1].strip()
+
+                    if valor_str and valor_str != "N/A":
+                        valor = int(valor_str)
+
+                        if valor > 0:
+                            ffmpeg_clock = valor / 1000000.0
+
+                except:
+                    pass
+
+    zmq_ctx = zmq.Context()
+    zmq_sock = zmq_ctx.socket(zmq.REQ)
+    zmq_sock.setsockopt(zmq.LINGER, 0)
+    zmq_sock.setsockopt(zmq.RCVTIMEO, 2000)
+    zmq_sock.setsockopt(zmq.SNDTIMEO, 2000)
+    zmq_lock = threading.Lock()
+
+    def escapar_zmq(texto):
+        return (
+            texto.replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+        )
+
+    def zmq_cmd(comando):
+        global zmq_sock
+        with zmq_lock:
+            for _ in range(3):
+                try:
+                    zmq_sock.send_string(comando)
+                    respuesta = zmq_sock.recv_string()
+                    if respuesta:
+                        return True
+                except Exception:
+                    try:
+                        zmq_sock.close()
+                    except:
+                        pass
+                    try:
+                        zmq_sock = zmq_ctx.socket(zmq.REQ)
+                        zmq_sock.setsockopt(zmq.LINGER, 0)
+                        zmq_sock.setsockopt(zmq.RCVTIMEO, 2000)
+                        zmq_sock.setsockopt(zmq.SNDTIMEO, 2000)
+                        zmq_sock.connect("tcp://127.0.0.1:55555")
+                    except:
+                        pass
+        return False
+
+    def actualizar_hud_realtime():
+
+        fecha_hud_rt = datetime.now().strftime("%d%m%Y")
+
+        ultimo_hud = ""
+
+        ultimo_hud_dias = ""
+
+        while res_video.poll() is None:
+
+            tiempo_actual = ffmpeg_clock
+
+            idx_hud = bisect.bisect_right(inicios_hud, tiempo_actual) - 1
+
+            if idx_hud < 0:
+                time.sleep(0.01)
+                continue
+
+            num_hud, inicio_hud, fin_hud, texto_hud_sub = subtitulos_srt[idx_hud]
+
+            if inicio_hud <= tiempo_actual <= fin_hud:
+
+                hud_timeline_txt = formatear_tiempo(inicio_hud)
+
+                hud_fin_txt = formatear_tiempo(fin_hud)
+
+                hud_progreso_audio = (
+                    ((idx_hud + 1) / total_bloques) * 100 if total_bloques > 0 else 0
+                )
+
+                hud_chars = len(texto_hud_sub)
+
+                hud_duracion_audio = duraciones_audio[idx_hud]
+
+                hud_velocidad_habla = (
+                    hud_chars / hud_duracion_audio if hud_duracion_audio > 0 else 0
+                )
+
+                hud_texto_final = (
+                    f"M8AX XTTS - [ {fecha_hud_rt} ] | "
+                    f"[ {idx_hud+1:06d} / {total_bloques:06d} ] | "
+                    f"[ {hud_timeline_txt} > {hud_fin_txt} ] | "
+                    f"{hud_progreso_audio:.2f} % | "
+                    f"{hud_velocidad_habla:.2f} CPS"
+                )
+
+                if "d" in hud_timeline_txt or "d" in hud_fin_txt:
+
+                    if hud_texto_final != ultimo_hud_dias:
+                        zmq_cmd(
+                            f"drawtext@dias reinit text='{escapar_zmq(hud_texto_final)}'"
+                        )
+                        zmq_cmd("drawtext@hud reinit text=''")
+                        ultimo_hud_dias = hud_texto_final
+
+                else:
+
+                    if hud_texto_final != ultimo_hud:
+                        zmq_cmd(
+                            f"drawtext@hud reinit text='{escapar_zmq(hud_texto_final)}'"
+                        )
+                        zmq_cmd("drawtext@dias reinit text=''")
+                        ultimo_hud = hud_texto_final
+
+            time.sleep(0.01)
+
+    def actualizar_narrador():
+
+        ultimo_narrador = ""
+        tiempo_cambio = 0
+        SEGUNDOS_VISIBLE = 5
+        ya_vaciado = False
+
+        while res_video.poll() is None:
+
+            tiempo_actual = ffmpeg_clock
+
+            idx_n = bisect.bisect_right(inicios_hud, tiempo_actual) - 1
+
+            if idx_n < 0:
+                time.sleep(0.01)
+                continue
+
+            if idx_n >= len(conteo_voces):
+                time.sleep(0.01)
+                continue
+
+            inicio_n = subtitulos_srt[idx_n][1]
+            fin_n = subtitulos_srt[idx_n][2]
+
+            if inicio_n <= tiempo_actual <= fin_n:
+
+                voz = conteo_voces[idx_n]
+
+                nombre_n = os.path.splitext(voz)[0].replace("_", " ").replace("-", " ")
+
+                texto_narrador = f"--- Narrador {nombre_n} ---"
+
+                if texto_narrador != ultimo_narrador:
+
+                    color_nar_rt = f"#{random.randint(100,255):02X}{random.randint(100,255):02X}{random.randint(100,255):02X}"
+                    zmq_cmd(
+                        f"drawtext@narrador reinit text='{escapar_zmq(texto_narrador)}':fontcolor={color_nar_rt}"
+                    )
+                    ultimo_narrador = texto_narrador
+                    tiempo_cambio = tiempo_actual
+                    ya_vaciado = False
+
+                elif tiempo_actual - tiempo_cambio > SEGUNDOS_VISIBLE:
+
+                    if not ya_vaciado:
+                        zmq_cmd("drawtext@narrador reinit text=''")
+                        ya_vaciado = True
+
+            time.sleep(0.01)
+
     res_video = subprocess.Popen(
         cmd_video,
         stderr=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         text=True,
         bufsize=1,
     )
+
+    time.sleep(1.0)
+
+    zmq_sock.connect("tcp://127.0.0.1:55555")
+
+    threading.Thread(target=leer_progress_ffmpeg, daemon=True).start()
+
+    threading.Thread(target=actualizar_hud_realtime, daemon=True).start()
+
+    if mostrar_narrador:
+
+        threading.Thread(target=actualizar_narrador, daemon=True).start()
 
     ultima_linea_ffmpeg = ""
 
@@ -2600,6 +2986,12 @@ if usar_video:
     else:
 
         print("\n- Error Generando El Vídeo MP4\n")
+
+    try:
+        zmq_sock.close()
+        zmq_ctx.term()
+    except:
+        pass
 
 try:
     if os.path.exists("M8AX_Filtro_Complejo.TxT"):
@@ -2775,7 +3167,7 @@ if usar_video:
             except Exception as e:
                 print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
 
-        print("- QRs Dinámicos Eliminados Correctamente\n")
+        print("- Vídeo QR, Clips Temporales Y Lista Concat Eliminados Correctamente\n")
 
 if (
     TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
@@ -2787,9 +3179,7 @@ if (
     fecha_luna_fin_total = fecha_espanol()
     luna_fin_total = ephem.Moon()
     luna_fin_total.compute()
-
     edad_luna_fin_total = ephem.now() - ephem.previous_new_moon(ephem.now())
-
     distancia_fin_total_km = luna_fin_total.earth_distance * 149597870.7
 
     telegram_m8ax(
@@ -2801,7 +3191,8 @@ if (
         f"• Bits ➤ {bits}\n"
         f"• Canales ➤ {canales_opus}\n"
         f"• Bitrate ➤ {bitrate} Kbps\n"
-        f"• Encoder Vídeo ➤ {encoder_video if usar_video else 'Sin Vídeo'}\n\n"
+        f"• Encoder Vídeo ➤ {encoder_video if usar_video else 'Sin Vídeo'}\n"
+        f"• Encoder QR ➤ {encoder_qr if usar_qr else 'Sin QR'}\n\n"
         f"🌙 DATOS LUNARES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Inicio Del Procesamiento ➤ {fecha_luna_inicio}\n"
@@ -2875,6 +3266,8 @@ if (
         + (
             f"• Fondo ➤ {os.path.basename(video_fondo)}\n"
             f"• Logo ➤ {os.path.basename(logo_m8ax)}\n"
+            f"• Efecto Visual ➤ {EFECTO_VIDEO}\n"
+            f"• HUD ➤ ON\n"
             f"• Narrador ➤ {'ON' if mostrar_narrador else 'OFF'}\n"
             f"• Vúmetro ➤ {'ON' if mostrar_vumeter else 'OFF'}\n"
             f"• Visualizador ➤ {visualizador.capitalize() if mostrar_vumeter else 'OFF'}\n"
@@ -2980,6 +3373,53 @@ if (
         print(
             "- Fichero De Audio OPUS De Estadísticas Cortas, Enviado Correctamente A Tu Telegram.\n"
         )
+
+    try:
+
+        LIMITE_TELEGRAM_OPUS = 45 * 1024 * 1024
+
+        tamaño_opus_final = os.path.getsize(SALIDA_OPUS)
+
+        if tamaño_opus_final <= LIMITE_TELEGRAM_OPUS:
+
+            print(
+                "- Enviando Audio OPUS ➤ ( AudioLibro Completo ) A Telegram...\n",
+                flush=True,
+            )
+
+            with open(SALIDA_OPUS, "rb") as audio_opus_final:
+                respuesta_telegram_opus = requests.post(
+                    f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendDocument",
+                    data={
+                        "chat_id": CHAT_ID_TELEGRAM,
+                        "caption": (
+                            f"Audio OPUS Final ➤ {os.path.basename(SALIDA_OPUS)}\n"
+                            f"Tamaño ➤ {tamaño_opus_final / 1024 / 1024:.2f} MB\n"
+                        ),
+                    },
+                    files={"document": audio_opus_final},
+                    timeout=600,
+                )
+
+            if respuesta_telegram_opus.status_code == 200:
+                print(
+                    "- Audio OPUS Final Enviado Correctamente A Telegram\n",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"- Error Telegram Al Enviar OPUS Final ➤ HTTP {respuesta_telegram_opus.status_code} {respuesta_telegram_opus.text}\n",
+                    flush=True,
+                )
+
+        else:
+            print(
+                f"- Audio OPUS Final No Enviado A Telegram ➤ Supera Los 45 MB Permitidos Por BOT - ({tamaño_opus_final / 1024 / 1024:.2f} MB)\n",
+                flush=True,
+            )
+
+    except Exception as e:
+        print(f"- Error Enviando Audio OPUS Final A Telegram ➤ {e}", flush=True)
 
     if os.path.exists("M8AX_Final.wav"):
         os.remove("M8AX_Final.wav")
