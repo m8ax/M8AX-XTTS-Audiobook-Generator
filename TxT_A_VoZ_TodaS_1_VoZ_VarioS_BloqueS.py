@@ -104,7 +104,7 @@ def tamano_m8ax(fichero):
         return f"{size:.2f} MB"
 
 def fuego_m8ax():
-    os.system("cls")
+    os.system("cls" if os.name == "nt" else "clear")
     ancho = 110
     alto = 32
     texto = "M 8 A X     X T T S     E N G I N E   -   T O D A S  1  V O Z  V A R I O S  B L O Q U E S"
@@ -182,7 +182,7 @@ def fuego_m8ax():
             msvcrt.getch()
             ejecutando = False
 
-    os.system("cls")
+    os.system("cls" if os.name == "nt" else "clear")
 
 def tiempo_srt(segundos):
     horas = int(segundos // 3600)
@@ -305,7 +305,14 @@ def generar_graficas_pro(
         else:
             return f"{s:02d}s"
 
-    MAX_PUNTOS = 1500
+    def detectar_outliers(data):
+
+        return np.array([i for i, v in enumerate(data) if v < 0.2 or v > 20], dtype=int)
+
+    dur_audio_completo = np.array(duraciones_audio)
+    out_audio_completo = detectar_outliers(dur_audio_completo)
+
+    MAX_PUNTOS = 3000
 
     if n > MAX_PUNTOS:
         idx = np.linspace(0, n - 1, MAX_PUNTOS).astype(int)
@@ -322,22 +329,15 @@ def generar_graficas_pro(
 
     ticks_tiempo = np.linspace(0, duracion_total, len(ticks_bloques))
 
-    def detectar_outliers(data):
-
-        if len(data) < 10:
-            return []
-
-        q1 = np.percentile(data, 25)
-        q3 = np.percentile(data, 75)
-        iqr = q3 - q1
-        low = q1 - 1.5 * iqr
-        high = q3 + 1.5 * iqr
-
-        return np.array(
-            [i for i, v in enumerate(data) if v < low or v > high], dtype=int
+    if n > MAX_PUNTOS:
+        idx_set = set(idx.tolist())
+        idx_map = {v: k for k, v in enumerate(idx)}
+        out_audio = np.array(
+            [idx_map[i] for i in out_audio_completo if i in idx_set], dtype=int
         )
+    else:
+        out_audio = out_audio_completo
 
-    out_audio = detectar_outliers(dur_audio)
     plt.style.use("dark_background")
     fig, axs = plt.subplots(4, 1, figsize=(19.2, 10.8))
 
@@ -429,10 +429,10 @@ def generar_graficas_pro(
     axs[3].grid(True, alpha=0.2)
 
     resumen = (
-        f"Bloques Totales ➤ {n_original} | Voces Distintas ➤ {len(voces_usadas)}\n"
+        f"Bloques Totales ➤ {n_original} | Voces Distintas ➤ {len(voces_usadas)} | Bloques Sospechosos ➤ {len(out_audio_completo)}\n"
         f"RTF ➤ {rtf:.2f}x ( Velocidad Real De Generación ) | Vel.Gen Media ➤ {media_vel_gen:.2f} Caract / Seg\n"
         f"Vel.Habla Media ➤ {media_vel_audio:.2f} Caract / Seg | Dur.Audio Media ➤ {media_dur_audio:.3f} Seg / Bloque"
-        f"\nHardware Usado ➤ {device_nombre}"
+        f"\nHardware Usado ➤ {device_nombre} | Gráfica ➤ {'Completa' if n_original <= 3000 else f'Submuestreada ( {3000} Puntos De {n_original} )'}"
     )
 
     plt.figtext(0.5, 0.02, resumen, ha="center", fontsize=9)
@@ -625,7 +625,7 @@ LENGUAJE = "es"
 
 stop_event = threading.Event()
 
-os.system("cls")
+os.system("cls" if os.name == "nt" else "clear")
 
 print("... Cargando M8AX XTTS | Creador De AudioLibros ...")
 
@@ -633,7 +633,7 @@ time.sleep(2)
 
 fuego_m8ax()
 
-os.system("cls")
+os.system("cls" if os.name == "nt" else "clear")
 
 shutil.rmtree("M8AX-WAVs", ignore_errors=True)
 shutil.rmtree("M8AX-QRs", ignore_errors=True)
@@ -848,7 +848,7 @@ else:
     print("\n---/// No Se Generará Vídeo MP4 \\\\\\---")
 
 time.sleep(5)
-os.system("cls")
+os.system("cls" if os.name == "nt" else "clear")
 
 VOCES = [
     "m8ax-voces/Aitana_Ocaña.wav",
@@ -1143,27 +1143,35 @@ for i, bloque in enumerate(bloques, 1):
     inicio_bloque = time.time()
 
     if bloques_restantes_con_voz <= 0:
+        bloque_anterior = bloques[i - 2].rstrip() if i >= 2 else ""
+        fin_frase = bloque_anterior.endswith(".") and not bloque_anterior.endswith(
+            "..."
+        )
 
-        if not voces_disponibles:
-            voces_disponibles = VOCES.copy()
-            random.shuffle(voces_disponibles)
+        if not fin_frase and i >= 2:
+            pass
 
-        if ultima_voz and voces_disponibles[0] == ultima_voz:
+        else:
+            if not voces_disponibles:
+                voces_disponibles = VOCES.copy()
+                random.shuffle(voces_disponibles)
 
-            for j in range(len(voces_disponibles)):
+            if ultima_voz and voces_disponibles[0] == ultima_voz:
 
-                if voces_disponibles[j] != ultima_voz:
-                    voces_disponibles[0], voces_disponibles[j] = (
-                        voces_disponibles[j],
-                        voces_disponibles[0],
-                    )
-                    break
+                for j in range(len(voces_disponibles)):
 
-        voz_actual = voces_disponibles.pop(0)
-        ultima_voz = voz_actual
-        min_bloques = random.randint(5, 8)
-        max_bloques = random.randint(min_bloques + 1, 20)
-        bloques_restantes_con_voz = random.randint(min_bloques, max_bloques)
+                    if voces_disponibles[j] != ultima_voz:
+                        voces_disponibles[0], voces_disponibles[j] = (
+                            voces_disponibles[j],
+                            voces_disponibles[0],
+                        )
+                        break
+
+            voz_actual = voces_disponibles.pop(0)
+            ultima_voz = voz_actual
+            min_bloques = random.randint(5, 8)
+            max_bloques = random.randint(min_bloques + 1, 20)
+            bloques_restantes_con_voz = random.randint(min_bloques, max_bloques)
 
     bloques_restantes_con_voz -= 1
     nombre = os.path.basename(voz_actual)
@@ -2109,6 +2117,10 @@ if usar_video:
             logo_m8ax = ruta_test
             break
 
+    if not logo_m8ax:
+        print("- No Se Encontró Ningún Logo...")
+        exit()
+
     print(
         f"- Logo Seleccionado Para Parte Superior Derecha Del Vídeo Final ➤ {os.path.basename(logo_m8ax)}\n"
     )
@@ -2539,11 +2551,7 @@ if usar_video:
 
     indice_grafica = 4 if usar_qr else 3
 
-    EFECTO_VIDEO = (
-        "Blanco Y Negro"
-        if random.random() >= 0.85
-        else "Normal"
-    )
+    EFECTO_VIDEO = "Blanco Y Negro" if random.random() >= 0.85 else "Normal"
 
     print(f"- Efecto Visual En Video Final ➤ {EFECTO_VIDEO.upper()}\n")
 
@@ -2582,7 +2590,7 @@ if usar_video:
         f"[tmp][logo_small]overlay=W-w-25:36:format=auto[tmp2];"
         f"[tmp2][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[tmp3];"
         f"[{indice_grafica}:v]scale=1920:1080[graf];"
-        f"[tmp3][graf]overlay=0:0:enable='gte(t,{duracion_opus-0.5})'[{salida_vu}];"
+        f"[tmp3][graf]overlay=0:0:enable='gte(t,{duracion_opus-3.5})'[{salida_vu}];"
         f"{filtro_final_vu}"
     )
 
@@ -2598,7 +2606,7 @@ if usar_video:
         f"{video_input_final}[logo_small]overlay=W-w-25:25:format=auto[tmp];"
         f"[tmp][logo_big]overlay=(W-w)/2:(H-h)/2:format=auto[tmp2];"
         f"[{indice_grafica}:v]scale=1920:1080[graf];"
-        f"[tmp2][graf]overlay=0:0:enable='gte(t,{duracion_opus-0.5})'[{salida_sinvu}];"
+        f"[tmp2][graf]overlay=0:0:enable='gte(t,{duracion_opus-3.5})'[{salida_sinvu}];"
         f"{filtro_final_sinvu}"
     )
 
@@ -2611,10 +2619,6 @@ if usar_video:
 
     with open("M8AX_Filtro_Complejo.TxT", "w", encoding="utf-8") as f:
         f.write(filtro_final)
-
-    if not logo_m8ax:
-        print("- No Se Encontró Ningún Logo Compatible Para Hacer El Vídeo...\n")
-        exit()
 
     SEGUNDOS_SEGMENTO = 41400
 
@@ -2695,7 +2699,7 @@ if usar_video:
         "-metadata",
         "track=1/10031977",
         "-metadata",
-        "copyright=10031977",
+        "copyright=M8AX-MvIiIaX ➤ FN-10031977",
         "-metadata",
         "album_artist=MarcoS OchoA DieZ",
         "-metadata",
