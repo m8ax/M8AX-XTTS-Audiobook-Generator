@@ -1101,6 +1101,13 @@ bloques_sospechosos_total = 0
 tam_wavs_total = 0
 subtitulos_srt = []
 qr_por_bloque = []
+encoder_video = "N/A"
+encoder_qr = "N/A"
+partes_mp4 = []
+SEGMENTAR_MP4 = False
+SALIDA_MP4 = ""
+EFECTO_VIDEO = "N/A"
+visualizador = "N/A"
 qr_video_final = os.path.join("M8AX-QRs", "M8AX_QR_Final.mp4")
 chars_totales_actual = 0
 ultimo_telegram = time.time()
@@ -1174,6 +1181,10 @@ for i, bloque in enumerate(bloques, 1):
             bloques_restantes_con_voz = random.randint(min_bloques, max_bloques)
 
     bloques_restantes_con_voz -= 1
+
+    if voz_actual is None:
+        voz_actual = voces_disponibles[0] if voces_disponibles else VOCES[0]
+
     nombre = os.path.basename(voz_actual)
 
     if nombre not in voces_usadas:
@@ -1248,7 +1259,9 @@ for i, bloque in enumerate(bloques, 1):
                 if i == total_bloques
                 else bloque.strip()
             )
-            + "\n\nSi Te Apetece Apoyar El Canal ➤ https://www.paypal.com/paypalme/m8ax"
+            + "\n\nSi Te Apetece Apoyar El Canal..."
+            + "\n\nPayPal ➤ https://www.paypal.com/paypalme/m8ax"
+            + "\n\nTarjeta ➤ https://buy.stripe.com/eVq8wPdnI2ewggLaaIbEA01"
         )
 
         r_qr = random.randint(150, 255)
@@ -1261,10 +1274,12 @@ for i, bloque in enumerate(bloques, 1):
             texto=texto_qr, salida=qr_path, color=(r_qr, g_qr, b_qr)
         )
 
-        duracion_qr = fin_real - inicio_real
+        duracion_qr = duracion_audio
 
         if i - 1 < len(pausas):
-            duracion_qr += pausas[i - 1]
+            duracion_qr += round(rate * pausas[i - 1]) / rate
+
+        duracion_qr = round(duracion_qr * 30) / 30
 
         fade_start_qr = max(0, duracion_qr - 0.5)
         qr_clip_path = os.path.join("M8AX-QRs", f"MvIiIaX_QR_{i:06d}.mp4")
@@ -1273,6 +1288,8 @@ for i, bloque in enumerate(bloques, 1):
             "ffmpeg",
             "-loop",
             "1",
+            "-r",
+            "30",
             "-i",
             qr_path,
             "-t",
@@ -1283,14 +1300,39 @@ for i, bloque in enumerate(bloques, 1):
             encoder_qr,
             "-pix_fmt",
             "yuv420p",
+            "-r",
+            "30",
             "-an",
             "-y",
             qr_clip_path,
         ]
 
-        subprocess.run(
-            cmd_qr_clip, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        for intento in range(3):
+
+            try:
+
+                subprocess.run(
+                    cmd_qr_clip,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=120,
+                    check=True,
+                )
+
+                break
+
+            except Exception as e:
+
+                print(
+                    f"- Error Generando QR Vídeo Del Bloque "
+                    f"{i:06d} | Intento {intento + 1}/3\n"
+                )
+
+                time.sleep(5)
+
+        else:
+
+            raise RuntimeError(f"\n- No Se Pudo Generar El QR Vídeo Del Bloque {i:06d}")
 
         qr_por_bloque.append(
             {
@@ -1315,6 +1357,7 @@ for i, bloque in enumerate(bloques, 1):
     eta = tiempo_medio * restantes
     velocidad = chars / duracion_audio if duracion_audio > 0 else 0
     velocidad_gen_bloque = chars / duracion_bloque if duracion_bloque > 0 else 0
+    kmh_proceso = velocidad_gen_bloque * 0.002 * 3600 / 1000
     cpu_cores = psutil.cpu_percent(percpu=True)
     cpu_avg = sum(cpu_cores) / len(cpu_cores)
     core_max = max(cpu_cores)
@@ -1355,7 +1398,7 @@ for i, bloque in enumerate(bloques, 1):
 
     print(
         f"\n{'-'*175}\n\n"
-        f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% | Edad Lunar ➤ {edad_luna:.1f} Días | Distancia A Tierra ➤ {distancia_km:,.0f} KM • • • • • • • • • • \033[0m\n\n"
+        f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% | Edad Lunar ➤ {edad_luna:.1f} Días | Distancia A La Luna ➤ {distancia_km:,.0f} KM • • • • • • • • • • \033[0m\n\n"
         f"\033[38;2;255;255;255m > PR ➤ {restante_pct:06.2f}% | {barra} | PC ➤ {progreso:06.2f}%\033[0m\n"
         f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
         + (
@@ -1375,7 +1418,7 @@ for i, bloque in enumerate(bloques, 1):
         f"\033[38;2;255;120;255m > WAV Actual ➤ {tam_wav_actual:.2f} MB | WAVS Totales ➤ {tam_wavs_total:.2f} MB\033[0m\n"
         f"\033[38;2;255;255;0m > Caracteres ➤ {chars} | Duración ➤ {duracion_audio:.2f} Segs\033[0m\n"
         f"\033[38;2;120;255;120m > Caracteres Totales Procesados ➤ {chars_totales_actual:,}\033[0m\n"
-        f"\033[38;2;255;50;50m > Velocidad De Habla ➤ {velocidad:.2f} Caract / Seg | Velocidad De Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg\033[0m\n"
+        f"\033[38;2;255;50;50m > Velocidad De Habla ➤ {velocidad:.2f} Caract / Seg | Velocidad De Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg | Velocidad De Generación Km/h ➤ {kmh_proceso:.4f} Km/h\033[0m\n"
         f"\033[38;2;0;200;255m > Inicio ➤ {formatear_tiempo(inicio_real)} | Fin ➤ {formatear_tiempo(fin_real)}\033[0m\n"
         f"\033[38;2;140;220;255m > Hardware ➤ {device_nombre}\033[0m\n"
         f"\033[38;2;0;120;255m > Cores ➤ [{cores_str}]\033[0m\n"
@@ -1399,7 +1442,7 @@ for i, bloque in enumerate(bloques, 1):
             f"{fecha_bloque}\n"
             f"Luna Visible ➤ {luna.phase:.2f}%\n"
             f"Edad Lunar ➤ {edad_luna:.1f} Días\n"
-            f"Distancia Tierra ➤ {distancia_km:,.0f} KM\n\n"
+            f"Distancia A La Luna ➤ {distancia_km:,.0f} KM\n\n"
             f"Texto Del Bloque ➤\n"
             f'"{bloque}"\n\n'
             f"P.Res ➤ {restante_pct:.2f}%\n"
@@ -1420,10 +1463,11 @@ for i, bloque in enumerate(bloques, 1):
             f"WAV Actual ➤ {tam_wav_actual:.2f} MB\n"
             f"WAVS Totales ➤ {tam_wavs_total:.2f} MB\n\n"
             f"Caracteres ➤ {chars}\n"
-            f"Duración Audio ➤ {duracion_audio:.2f} Segs\n"
+            f"Duración Audio ➤ {duracion_audio:.2f} Segs - ( {formatear_tiempo(duracion_audio)} )\n"
             f"Caracteres Totales ➤ {chars_totales_actual:,}\n\n"
             f"Vel.Habla ➤ {velocidad:.2f} Caract / Seg\n"
-            f"Vel.Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg\n\n"
+            f"Vel.Generación ➤ {velocidad_gen_bloque:.2f} Caract / Seg\n"
+            f"Vel.Generación Km/h ➤ {kmh_proceso:.4f} Km/h\n\n"
             f"Inicio ➤ {formatear_tiempo(inicio_real)}\n"
             f"Fin ➤ {formatear_tiempo(fin_real)}\n\n"
             f"Hardware ➤ {device_nombre}\n"
@@ -1712,6 +1756,7 @@ sample_rate = params.framerate if "params" in locals() else 24000
 bitrate = 48
 tamano_opus = os.path.getsize(SALIDA_OPUS) / (1024 * 1024)
 total_chars = sum(chars_por_bloque)
+km_totales_texto = (total_chars * 2) / 1_000_000
 velocidad_chars = total_chars / duracion_proceso if duracion_proceso > 0 else 0
 comp = ((1 - (tamano_opus / tamano)) * 100) if tamano > 0 else 0
 ratio = (tamano / tamano_opus) if tamano_opus > 0 else 0
@@ -1765,18 +1810,18 @@ print(
     f"- Inicio Del Procesamiento ➤ {fecha_luna_inicio} | "
     f"Luna Visible ➤ {luna_inicio.phase:.2f}% | "
     f"Edad Lunar ➤ {edad_luna_inicio:.1f} Días | "
-    f"Distancia A Tierra ➤ {distancia_inicio_km:,.0f} KM\n"
+    f"Distancia A La Luna ➤ {distancia_inicio_km:,.0f} KM\n"
 )
 
 print(
     f"- Fin Del Procesamiento ➤ {fecha_luna_fin} | "
     f"Luna Visible ➤ {luna_fin.phase:.2f}% | "
     f"Edad Lunar ➤ {edad_luna_fin:.1f} Días | "
-    f"Distancia A Tierra ➤ {distancia_fin_km:,.0f} KM\n"
+    f"Distancia A La Luna ➤ {distancia_fin_km:,.0f} KM\n"
 )
 
 print(
-    f"- Tiempo Total De Procesamiento ➤ {formatear_tiempo(duracion_proceso)} - ( {duracion_proceso:.2f} Segs )\n"
+    f"- Tiempo Total De Procesamiento ➤ {duracion_proceso:.2f} Segs - ( {formatear_tiempo(duracion_proceso)} )\n"
 )
 
 print(
@@ -1790,15 +1835,26 @@ print(
 )
 
 print(f"- Eficiencia De Generación ➤ {eficiencia:.2f} Segs Audio / Seg\n")
-print(f"- Rendimiento ➤ {audio_por_minuto:.2f} Segs Audio / Min\n")
+
+print(
+    f"- Rendimiento ➤ {audio_por_minuto:.2f} Segs Audio / Min - ( {formatear_tiempo(audio_por_minuto)} )\n"
+)
+
 print(f"- Total Nº Bloques TXT ➤ {total_bloques}\n")
 print(f"- Total Nº Bloques Generados ➤ {len(archivos)}\n")
 print(f"- Bloques Por Segundo ➤ {bloques_por_seg:.5f}\n")
 print(f"- Bloques Por Minuto ➤ {bloques_por_seg * 60:.2f}\n")
 print(f"- Bloques Por Hora ➤ {bloques_por_seg * 3600:.2f}\n")
 print(f"- Bloques Por Semana ➤ {bloques_por_seg * 604800:.2f}\n")
-print(f"- Tiempo Medio De Procesado Por Bloque ➤ {tiempo_medio_bloque:.2f} Segs\n")
-print(f"- Duración Media De Cada Bloque De Audio ➤ {media_audio:.3f} Segs\n")
+
+print(
+    f"- Tiempo Medio De Procesado Por Bloque ➤ {tiempo_medio_bloque:.2f} Segs - ( {formatear_tiempo(tiempo_medio_bloque)} )\n"
+)
+
+print(
+    f"- Duración Media De Cada Bloque De Audio ➤ {media_audio:.3f} Segs - ( {formatear_tiempo(media_audio)} )\n"
+)
+
 print(f"- Caracteres Medios Por Bloque ➤ {media_chars:.2f}\n")
 
 print(
@@ -1809,16 +1865,21 @@ print(f"- Bloque Más Largo ( Texto ) ➤ {max_chars_b} Caracteres\n")
 print(f"- Bloque Más Corto ( Texto ) ➤ {min_chars_b} Caracteres\n")
 
 print(
-    f"- Variabilidad De Duración ➤ {desviacion:.2f} Segs - ( Entre {max(0, media_audio - desviacion):.2f} Y {(media_audio + desviacion):.2f} Segs | Bajo < 2 = Fluido | Alto > 5 = Irregular )\n"
+    f"- Variabilidad De Duración ➤ {desviacion:.2f} Segs - "
+    f"( {formatear_tiempo(desviacion)} ) - "
+    f"( Entre {max(0, media_audio - desviacion):.2f} Y {(media_audio + desviacion):.2f} Segs | "
+    f"Bajo < 2 = Fluido | Alto > 5 = Irregular )\n"
 )
 
 print(
     f"- Bloque Más Largo ( Duración ) ➤ {max_duracion:.2f} Segs - "
+    f"( {formatear_tiempo(max_duracion)} ) - "
     f"( Puede Indicar Frases Demasiado Largas )\n"
 )
 
 print(
     f"- Bloque Más Corto ( Duración ) ➤ {min_duracion:.2f} Segs - "
+    f"( {formatear_tiempo(min_duracion)} ) - "
     f"( Detecta Cortes Muy Pequeños O Posibles Glitches )\n"
 )
 
@@ -1832,7 +1893,12 @@ print(
 )
 
 print(
-    f"- Tiempo Por 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs - "
+    f"- Distancia Equivalente Del Texto ➤ {km_totales_texto:.3f} KM - "
+    f"( Asumiendo 2 mm Por Carácter )\n"
+)
+
+print(
+    f"- Tiempo Por 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs - ( {formatear_tiempo(tiempo_por_1000)} ) - "
     f"( Velocidad Real De Generación, Ideal Para Comparar CPUs / GPUs )\n"
 )
 
@@ -1920,16 +1986,22 @@ for v in voces_usadas:
     )
 
 print(
-    f"\n- Tiempo Total Hablado Por Todas Las Voces ➤ {sum(tiempo_por_voz.values()):.2f} Segs"
+    f"\n- Tiempo Total Hablado Por Todas Las Voces ➤ {sum(tiempo_por_voz.values()):.2f} Segs - "
+    f"( {formatear_tiempo(sum(tiempo_por_voz.values()))} )"
 )
 
-print(f"\n- Duración Total OPUS ➤ {duracion_opus:.2f} Segs")
+print(
+    f"\n- Duración Total OPUS ➤ {duracion_opus:.2f} Segs - "
+    f"( {formatear_tiempo(duracion_opus)} )"
+)
 
 print(
     f"\n- Diferencia ➤ {abs(sum(tiempo_por_voz.values()) - duracion_opus):.2f} Segs - ( {'Excelente' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.02 else 'Muy Preciso' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.1 else 'Aceptable' if abs(sum(tiempo_por_voz.values()) - duracion_opus) < 0.5 else 'Descuadre Alto'} )\n"
 )
 
-print(f"- Velocidad De Generación De Texto ➤ {velocidad_chars:.2f} Caract / Seg\n")
+print(
+    f"- Velocidad De Generación De Texto ➤ {velocidad_chars:.2f} Caract / Seg | Velocidad De Generación Km/h ➤ {velocidad_chars * 0.002 * 3600 / 1000:.4f} Km/h\n"
+)
 
 print(
     f"- Ratio Caracteres / Segundo Real De Audio ➤ {ratio_chars_audio:.2f} - ( Esta Métrica Indica La Cantidad De Caracteres Procesados Por Cada Segundo De Audio Generado )\n"
@@ -1964,15 +2036,15 @@ except:
 
 if usar_musica:
     print(
-        f"- Duración Del Audio OPUS Con Música De Fondo ( {nombre} ) ➤ {formatear_tiempo(duracion_opus)} - ( {duracion_opus:.2f} Segs )\n"
+        f"- Duración Del Audio OPUS Con Música De Fondo ( {nombre} ) ➤ {duracion_opus:.2f} Segs - ( {formatear_tiempo(duracion_opus)} )\n"
     )
 else:
     print(
-        f"- Duración Del Audio OPUS Sin Música De Fondo ➤ {formatear_tiempo(duracion_opus)} - ( {duracion_opus:.2f} Segs )\n"
+        f"- Duración Del Audio OPUS Sin Música De Fondo ➤ {duracion_opus:.2f} Segs - ( {formatear_tiempo(duracion_opus)} )\n"
     )
 
 print(
-    f"- Tiempo Total De Pausas Entre Bloques ➤ {formatear_tiempo(total_pausas)} - ( {total_pausas:.2f} Segs )\n"
+    f"- Tiempo Total De Pausas Entre Bloques ➤ {total_pausas:.2f} Segs - ( {formatear_tiempo(total_pausas)} )\n"
 )
 
 print(
@@ -2013,7 +2085,7 @@ nombre_grafica = generar_graficas_pro(
 
 if usar_qr:
 
-    print(f"- Pregenerando Video De Códigos QR\n")
+    print(f"- Pregenerando Video De Códigos QR ( Concatenando )\n")
 
     lista_clips_qr = os.path.join("M8AX-QRs", "M8AX-Lista_Clips_QR.TxT")
 
@@ -2038,8 +2110,28 @@ if usar_qr:
 
     subprocess.run(cmd_concat_qr, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1",
+            qr_video_final,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    try:
+        dur_qr_final = float(probe.stdout.strip().split("=")[1])
+    except:
+        dur_qr_final = 0.0
+
     print(
-        f"- Vídeo QR Pregenerado ➤ {qr_video_final} - ( {tamano_m8ax(qr_video_final)} )\n"
+        f"- Vídeo QR Pregenerado ➤ {qr_video_final} - ( {tamano_m8ax(qr_video_final)} ) - {formatear_tiempo(dur_qr_final)} - ( {dur_qr_final:.2f} Segs )\n"
     )
 
 if usar_video:
@@ -3160,18 +3252,18 @@ if usar_video:
         f"( Vídeo Final MP4 + Pipeline Completo )\n"
     )
 
-    if usar_qr:
+if usar_qr:
 
-        for archivo_qr in os.listdir("M8AX-QRs"):
+    for archivo_qr in os.listdir("M8AX-QRs"):
 
-            try:
-                ruta_qr = os.path.join("M8AX-QRs", archivo_qr)
-                if os.path.isfile(ruta_qr):
-                    os.remove(ruta_qr)
-            except Exception as e:
-                print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
+        try:
+            ruta_qr = os.path.join("M8AX-QRs", archivo_qr)
+            if os.path.isfile(ruta_qr):
+                os.remove(ruta_qr)
+        except Exception as e:
+            print(f"\n- Error Al Borrar QR ➤ {e}\n", flush=True)
 
-        print("- Vídeo QR, Clips Temporales Y Lista Concat Eliminados Correctamente\n")
+    print("- Vídeo QR, Clips Temporales Y Lista Concat Eliminados Correctamente\n")
 
 if (
     TOKEN_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
@@ -3213,40 +3305,42 @@ if (
         f"• Distancia A La Luna Al Final De La Producción ➤ {distancia_fin_total_km:,.0f} KM\n\n"
         f"⏱️ TIEMPOS Y DURACIONES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Tiempo Total De Procesamiento ➤ {formatear_tiempo(duracion_total_final)}\n"
-        f"• Tiempo Extra Pipeline Final ➤ {formatear_tiempo(tiempo_extra_produccion)}\n"
-        f"• Duración OPUS ➤ {formatear_tiempo(duracion_opus)}\n"
-        f"• Tiempo Pausas ➤ {formatear_tiempo(total_pausas)}\n"
-        f"• Tiempo / 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs\n\n"
+        f"• Tiempo Total De Procesamiento ➤ {duracion_total_final:.2f} Segs - ( {formatear_tiempo(duracion_total_final)} )\n"
+        f"• Tiempo Extra Pipeline Final ➤ {tiempo_extra_produccion:.2f} Segs - ( {formatear_tiempo(tiempo_extra_produccion)} )\n"
+        f"• Duración OPUS ➤ {duracion_opus:.2f} Segs - ( {formatear_tiempo(duracion_opus)} )\n"
+        f"• Tiempo Pausas ➤ {total_pausas:.2f} Segs - ( {formatear_tiempo(total_pausas)} )\n"
+        f"• Tiempo / 1000 Caracteres ➤ {tiempo_por_1000:.2f} Segs - ( {formatear_tiempo(tiempo_por_1000)} )\n\n"
         f"⚡ RENDIMIENTO XTTS\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• RTF XTTS ➤ {rtf_xtts:.2f}x\n"
         f"• RTF Audio Final ➤ {rtf:.2f}x\n"
         + (f"• RTF Producción Final ➤ {rtf_total_final:.2f}x\n" if usar_video else "")
         + f"• Eficiencia ➤ {eficiencia:.2f} Segs Audio / Seg Procesado\n"
-        f"• Rendimiento ➤ {audio_por_minuto:.2f} Segs / Min\n"
+        f"• Rendimiento ➤ {audio_por_minuto:.2f} Segs / Min - ( {formatear_tiempo(audio_por_minuto)} )\n"
         f"• Bloques / Segundo ➤ {bloques_por_seg:.5f}\n"
         f"• Bloques / Minuto ➤ {bloques_por_seg * 60:.2f}\n"
         f"• Bloques / Hora ➤ {bloques_por_seg * 3600:.2f}\n"
         f"• Bloques / Semana ➤ {bloques_por_seg * 604800:.2f}\n"
         f"• Velocidad Texto ➤ {velocidad_chars:.2f} Caract / Seg\n"
+        f"• Velocidad De Generación Km/h ➤ {velocidad_chars * 0.002 * 3600 / 1000:.4f} Km/h\n"
         f"• Velocidad Habla ➤ {chars_por_seg_audio:.2f} Caract / Seg\n"
         f"• Ratio Caracteres / Audio ➤ {ratio_chars_audio:.2f}\n\n"
         f"🧠 BLOQUES Y TEXTO\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Bloques TXT ➤ {total_bloques}\n"
         f"• Bloques Generados ➤ {len(archivos)}\n"
-        f"• Tiempo Medio Bloque ➤ {tiempo_medio_bloque:.2f} Segs\n"
-        f"• Duración Media Bloque ➤ {media_audio:.3f} Segs\n"
+        f"• Tiempo Medio Bloque ➤ {tiempo_medio_bloque:.2f} Segs - ( {formatear_tiempo(tiempo_medio_bloque)} )\n"
+        f"• Duración Media Bloque ➤ {media_audio:.3f} Segs - ( {formatear_tiempo(media_audio)} )\n"
         f"• Caracteres Medios Por Bloque ➤ {media_chars:.2f}\n"
         f"• Variabilidad De Caracteres ➤ {desviacion_chars:.2f}\n"
         f"• Bloque Más Largo Texto ➤ {max_chars_b}\n"
         f"• Bloque Más Corto Texto ➤ {min_chars_b}\n"
-        f"• Variabilidad De Duración ➤ {desviacion:.2f} Segs\n"
-        f"• Bloque Más Largo Audio ➤ {max_duracion:.2f} Segs\n"
-        f"• Bloque Más Corto Audio ➤ {min_duracion:.2f} Segs\n"
+        f"• Variabilidad De Duración ➤ {desviacion:.2f} Segs - ( {formatear_tiempo(desviacion)} )\n"
+        f"• Bloque Más Largo Audio ➤ {max_duracion:.2f} Segs - ( {formatear_tiempo(max_duracion)} )\n"
+        f"• Bloque Más Corto Audio ➤ {min_duracion:.2f} Segs - ( {formatear_tiempo(min_duracion)} )\n"
         f"• Caracteres Originales ➤ {len(texto)}\n"
-        f"• Caracteres Procesados ➤ {total_chars}\n\n"
+        f"• Caracteres Procesados ➤ {total_chars}\n"
+        f"• Distancia Equivalente Del Texto ➤ {km_totales_texto:.3f} KM - ( Asumiendo 2 mm Por Carácter )\n\n"
         f"🧪 DETECCIÓN DE ERRORES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Bloques Fallidos ➤ {len(bloques_fallidos)}\n"
@@ -3256,7 +3350,7 @@ if (
         f"🎙️ VOCES\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Voces Distintas ➤ {len(voces_usadas)}\n"
-        f"• Tiempo Total Voces ➤ {formatear_tiempo(sum(tiempo_por_voz.values()))}\n"
+        f"• Tiempo Total Voces ➤ {sum(tiempo_por_voz.values()):.2f} Segs - ( {formatear_tiempo(sum(tiempo_por_voz.values()))} )\n"
         f"• Diferencia OPUS / Voces ➤ {abs(sum(tiempo_por_voz.values()) - duracion_opus):.2f} Segs\n\n"
         f"💾 TAMAÑOS Y COMPRESIÓN\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -3423,7 +3517,39 @@ if (
             )
 
     except Exception as e:
-        print(f"- Error Enviando Audio OPUS Final A Telegram ➤ {e}", flush=True)
+        print(f"- Error Enviando Audio OPUS Final A Telegram ➤ {e}\n", flush=True)
+
+    if usar_video and nombre_grafica and os.path.exists(nombre_grafica):
+
+        try:
+
+            with open(nombre_grafica, "rb") as grafica:
+
+                respuesta_grafica = requests.post(
+                    f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendDocument",
+                    data={
+                        "chat_id": CHAT_ID_TELEGRAM,
+                        "caption": "📊 M8AX ➤ Gráficas PRO Del AudioLibro",
+                    },
+                    files={
+                        "document": grafica,
+                    },
+                    timeout=120,
+                )
+
+            if respuesta_grafica.status_code == 200:
+
+                print("- Gráfica WEBP Enviada Correctamente A Telegram\n")
+
+            else:
+
+                print(
+                    f"- Error Telegram Al Enviar Gráfica ➤ HTTP {respuesta_grafica.status_code} {respuesta_grafica.text}\n"
+                )
+
+        except Exception as e:
+
+            print(f"- Error Enviando Gráfica A Telegram ➤ {e}\n")
 
     if os.path.exists("M8AX_Final.wav"):
         os.remove("M8AX_Final.wav")
@@ -3466,7 +3592,7 @@ print(
     f"- {fecha_espanol()} - "
     f"( Luna Visible ➤ {luna_final_log.phase:.2f}% | "
     f"Edad Lunar ➤ {edad_luna:.1f} Días | "
-    f"Distancia A Tierra ➤ {distancia_km:,.0f} KM )"
+    f"Distancia A La Luna ➤ {distancia_km:,.0f} KM )"
 )
 
 print(f"\n- YouTube Channel ➤ https://youtube.com/m8ax ➤ ¡ Suscríbete !")
