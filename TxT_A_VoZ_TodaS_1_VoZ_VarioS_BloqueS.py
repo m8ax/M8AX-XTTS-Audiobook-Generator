@@ -562,6 +562,14 @@ def dividir_texto(texto, max_chars=220, min_chars=80, hard_limit=235):
 
     return bloques
 
+def formatear_tiempo_completo(segundos):
+    d = int(segundos // 86400)
+    h = int((segundos % 86400) // 3600)
+    m = int((segundos % 3600) // 60)
+    s = int(segundos % 60)
+
+    return f"{d:02d}d:{h:02d}h:{m:02d}m:{s:02d}s"
+
 def formatear_tiempo(segundos):
     d = int(segundos // 86400)
     h = int((segundos % 86400) // 3600)
@@ -1145,6 +1153,8 @@ if usar_qr:
             encoder_qr = enc
             break
 
+m8ax_qr_desfase_acumulado = 0.0
+
 for i, bloque in enumerate(bloques, 1):
 
     inicio_bloque = time.time()
@@ -1279,7 +1289,21 @@ for i, bloque in enumerate(bloques, 1):
         if i - 1 < len(pausas):
             duracion_qr += round(rate * pausas[i - 1]) / rate
 
-        duracion_qr = round(duracion_qr * 30) / 30
+        duracion_qr_raw = round(duracion_qr * 30) / 30
+
+        error = duracion_qr_raw - duracion_qr
+
+        m8ax_qr_desfase_acumulado += error
+
+        if m8ax_qr_desfase_acumulado >= (1 / 30):
+            duracion_qr_raw -= 1 / 30
+            m8ax_qr_desfase_acumulado -= 1 / 30
+
+        elif m8ax_qr_desfase_acumulado <= -(1 / 30):
+            duracion_qr_raw += 1 / 30
+            m8ax_qr_desfase_acumulado += 1 / 30
+
+        duracion_qr = duracion_qr_raw
 
         fade_start_qr = max(0, duracion_qr - 0.5)
         qr_clip_path = os.path.join("M8AX-QRs", f"MvIiIaX_QR_{i:06d}.mp4")
@@ -1352,9 +1376,11 @@ for i, bloque in enumerate(bloques, 1):
     rtf_bloque = duracion_bloque / duracion_audio if duracion_audio > 0 else 0
     duraciones.append(duracion_bloque)
     progreso = (i / total_bloques) * 100
-    tiempo_medio = sum(duraciones) / len(duraciones)
+    tiempo_transcurrido = time.time() - inicio
+    bloques_procesados = len(archivos)
+    throughput = bloques_procesados / tiempo_transcurrido
     restantes = total_bloques - i
-    eta = tiempo_medio * restantes
+    eta = restantes / throughput if throughput > 0 else 0
     velocidad = chars / duracion_audio if duracion_audio > 0 else 0
     velocidad_gen_bloque = chars / duracion_bloque if duracion_bloque > 0 else 0
     kmh_proceso = velocidad_gen_bloque * 0.002 * 3600 / 1000
@@ -2263,6 +2289,31 @@ if usar_video:
         "shadowcolor=black@0.7"
     )
 
+    color_restante = (
+        f"#{random.randint(100,255):02X}"
+        f"{random.randint(100,255):02X}"
+        f"{random.randint(100,255):02X}"
+    )
+
+    filtro_restante = (
+        "drawtext@restante="
+        "text=' ':"
+        "expansion=none:"
+        "fontfile='C\\:/Windows/Fonts/consola.ttf':"
+        "fontsize=22:"
+        f"fontcolor={color_restante}:"
+        "x=w-text_w-224:"
+        "y=5:"
+        "box=1:"
+        "boxcolor=black@0.12:"
+        "boxborderw=6:"
+        "borderw=1:"
+        "bordercolor=black@0.7:"
+        "shadowx=2:"
+        "shadowy=2:"
+        "shadowcolor=black@0.7"
+    )
+
     filtro_qrs = ""
 
     if usar_qr:
@@ -2668,7 +2719,7 @@ if usar_video:
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
+        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{filtro_restante},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
         f"{video_input_final}drawbox="
@@ -2692,7 +2743,7 @@ if usar_video:
         f"force_style='FontName=Segoe UI,FontSize=20,"
         f"PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,"
         f"BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=42,MarginL=25,MarginR=25'"
-        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
+        f"{',' + filtro_narrador_realtime if mostrar_narrador else ''},{drawtext_final},{drawtext_extra},{filtro_hud_m8ax},{filtro_hud_m8ax_dias},{filtro_restante},{drawtext_suscribete},{drawtext_duracion},{drawtext_gracias},zmq=bind_address=tcp\\\\://127.0.0.1\\\\:55555[sub];"
         f"[2:v]scale=180:-1,format=rgba,colorchannelmixer=aa=0.65[logo_small];"
         f"[2:v]format=yuva420p,scale=950:-1,colorchannelmixer=aa=0.22,fade=t=out:st={fade_inicio}:d={fade_duracion}:alpha=1[logo_big];"
         f"{video_input_final}[logo_small]overlay=W-w-25:25:format=auto[tmp];"
@@ -2898,6 +2949,14 @@ if usar_video:
 
             tiempo_actual = ffmpeg_clock
 
+            duracion_total_libro = duracion_opus
+
+            restante = max(0, duracion_total_libro - tiempo_actual)
+
+            texto_restante = (
+                "| RESTANTE > " + formatear_tiempo_completo(restante) + " |"
+            )
+
             idx_hud = bisect.bisect_right(inicios_hud, tiempo_actual) - 1
 
             if idx_hud < 0:
@@ -2949,6 +3008,10 @@ if usar_video:
                         )
                         zmq_cmd("drawtext@dias reinit text=''")
                         ultimo_hud = hud_texto_final
+
+                zmq_cmd(
+                    f"drawtext@restante reinit text='{escapar_zmq(texto_restante)}'"
+                )
 
             time.sleep(0.01)
 
