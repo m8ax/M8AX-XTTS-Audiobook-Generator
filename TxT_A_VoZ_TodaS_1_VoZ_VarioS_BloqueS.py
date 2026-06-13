@@ -56,10 +56,12 @@
 # By M8AX.
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from TTS.api import TTS
 from PIL import Image
 from PIL import ImageDraw
+import soundfile as _sf
+import numpy as _np
 import subprocess
 import warnings
 import statistics
@@ -1331,7 +1333,7 @@ for i, bloque in enumerate(bloques, 1):
             qr_clip_path,
         ]
 
-        for intento in range(3):
+        for intento in range(300):
 
             try:
 
@@ -1349,7 +1351,7 @@ for i, bloque in enumerate(bloques, 1):
 
                 print(
                     f"- Error Generando QR Vídeo Del Bloque "
-                    f"{i:06d} | Intento {intento + 1}/3\n"
+                    f"{i:06d} | Intento {intento + 1} / 300\n"
                 )
 
                 time.sleep(5)
@@ -1381,6 +1383,7 @@ for i, bloque in enumerate(bloques, 1):
     throughput = bloques_procesados / tiempo_transcurrido
     restantes = total_bloques - i
     eta = restantes / throughput if throughput > 0 else 0
+    fin_estimado = datetime.now() + timedelta(seconds=eta)
     velocidad = chars / duracion_audio if duracion_audio > 0 else 0
     velocidad_gen_bloque = chars / duracion_bloque if duracion_bloque > 0 else 0
     kmh_proceso = velocidad_gen_bloque * 0.002 * 3600 / 1000
@@ -1426,7 +1429,7 @@ for i, bloque in enumerate(bloques, 1):
         f"\n{'-'*175}\n\n"
         f"\033[38;2;120;190;255m > • • • • • • • • • •  {fecha_bloque} | Luna Visible ➤ {luna.phase:.2f}% | Edad Lunar ➤ {edad_luna:.1f} Días | Distancia A La Luna ➤ {distancia_km:,.0f} KM • • • • • • • • • • \033[0m\n\n"
         f"\033[38;2;255;255;255m > PR ➤ {restante_pct:06.2f}% | {barra} | PC ➤ {progreso:06.2f}%\033[0m\n"
-        f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)}\033[0m\n"
+        f"\033[38;2;255;0;255m > Bloque ➤ [ {i:06d} / {total_bloques:06d} ] | Progreso ➤ {progreso:.2f}% | ETA ➤ {formatear_tiempo(eta)} | Fin Previsto ➤ {fin_estimado.strftime('%d-%m-%Y A Las %H:%M:%S')}\033[0m\n"
         + (
             f"\033[38;2;255;200;0m > Código QR ➤ Generado Correctamente Para El Bloque {i:06d}\033[0m\n"
             if usar_qr
@@ -1462,7 +1465,7 @@ for i, bloque in enumerate(bloques, 1):
         and CHAT_ID_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
     ):
 
-        print("- Enviando Mensaje A Tu Telegram Con Estadísticas Del Bloque...\n")
+        print("- Enviando Mensaje A Tu Telegram Con Estadísticas Del Bloque\n")
 
         telegram_m8ax(
             f"{fecha_bloque}\n"
@@ -1475,7 +1478,8 @@ for i, bloque in enumerate(bloques, 1):
             f"P.Com ➤ {progreso:.2f}%\n\n"
             f"Bloque ➤ [ {i:06d} / {total_bloques:06d} ]\n"
             + (f"Código QR ➤ Correcto Para El Bloque {i:06d}\n" if usar_qr else "")
-            + f"ETA ➤ {formatear_tiempo(eta)}\n\n"
+            + f"ETA ➤ {formatear_tiempo(eta)}\n"
+            + f"Fin Previsto ➤ {fin_estimado.strftime('%d-%m-%Y A Las %H:%M:%S')}\n\n"
             f"Tiempo De Proceso Del Bloque ➤ {duracion_bloque:.2f} Segs\n"
             f"RTF ➤ {rtf_bloque:.2f}x\n\n"
             f"Estado ➤ {estado_bloque}\n"
@@ -1523,26 +1527,29 @@ if not archivos:
     print("\n- No Se Generaron Archivos WAV")
     exit()
 
-with wave.open(archivos[0], "rb") as w:
-    params = w.getparams()
+with _sf.SoundFile(archivos[0], "r") as _primer:
+    _samplerate = _primer.samplerate
+    _channels = _primer.channels
+    _subtype = _primer.subtype
 
-with wave.open(SALIDA_WAV, "wb") as salida:
-    salida.setparams(params)
-    bytes_por_muestra = params.sampwidth
-    bits = bytes_por_muestra * 8
+with _sf.SoundFile(
+    SALIDA_WAV,
+    "w",
+    samplerate=_samplerate,
+    channels=_channels,
+    subtype=_subtype,
+    format="WAV",
+) as salida_sf:
 
     for i, archivo in enumerate(archivos):
+        datos, _ = _sf.read(archivo, dtype="int16", always_2d=True)
+        salida_sf.write(datos)
 
-        with wave.open(archivo, "rb") as w:
-            frames = w.readframes(w.getnframes())
-            salida.writeframes(frames)
-
-            if i < len(archivos) - 1:
-                duracion_pausa = pausas[i]
-                sample_rate_real = params.framerate
-                muestras = round(sample_rate_real * duracion_pausa)
-                bytes_silencio = muestras * bytes_por_muestra * params.nchannels
-                salida.writeframes(b"\x00" * bytes_silencio)
+        if i < len(archivos) - 1:
+            duracion_pausa = pausas[i]
+            muestras = round(_samplerate * duracion_pausa)
+            silencio = _np.zeros((muestras, _channels), dtype="int16")
+            salida_sf.write(silencio)
 
 print(f"\n- Archivo Unido ➤ {SALIDA_WAV}", flush=True)
 
@@ -1778,7 +1785,7 @@ try:
 except:
     duracion_opus = 0
 
-sample_rate = params.framerate if "params" in locals() else 24000
+sample_rate = 24000
 bitrate = 48
 tamano_opus = os.path.getsize(SALIDA_OPUS) / (1024 * 1024)
 total_chars = sum(chars_por_bloque)
@@ -2078,7 +2085,7 @@ print(
 )
 
 print(
-    f"- Frecuencia Del Fichero OPUS ➤ {sample_rate} Hz | {bits} Bits | {canales_opus} Canal(es) | {bitrate} Kbps\n"
+    f"- Frecuencia Del Fichero OPUS ➤ {sample_rate} Hz | {canales_opus} Canal(es) | {bitrate} Kbps\n"
 )
 
 logging.disable(logging.CRITICAL)
@@ -3333,7 +3340,7 @@ if (
     and CHAT_ID_TELEGRAM != "PON AQUÍ TUS CREDENCIALES"
 ):
 
-    print("- Enviando Mensaje Final De Estadísticas, A Tu Telegram...\n")
+    print("- Enviando Mensaje Final De Estadísticas, A Tu Telegram.\n")
 
     fecha_luna_fin_total = fecha_espanol()
     luna_fin_total = ephem.Moon()
@@ -3347,7 +3354,6 @@ if (
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"• Hardware ➤ {device_nombre}\n"
         f"• Frecuencia Audio OPUS ➤ {sample_rate} Hz\n"
-        f"• Bits ➤ {bits}\n"
         f"• Canales ➤ {canales_opus}\n"
         f"• Bitrate ➤ {bitrate} Kbps\n"
         f"• Encoder Vídeo ➤ {encoder_video if usar_video else 'Sin Vídeo'}\n"
@@ -3544,7 +3550,7 @@ if (
         if tamaño_opus_final <= LIMITE_TELEGRAM_OPUS:
 
             print(
-                "- Enviando Audio OPUS ➤ ( AudioLibro Completo ) A Telegram...\n",
+                "- Enviando Audio OPUS ➤ ( AudioLibro Completo ) A Telegram.\n",
                 flush=True,
             )
 
@@ -3564,7 +3570,7 @@ if (
 
             if respuesta_telegram_opus.status_code == 200:
                 print(
-                    "- Audio OPUS Final Enviado Correctamente A Telegram\n",
+                    "- Audio OPUS Final Enviado Correctamente A Telegram.\n",
                     flush=True,
                 )
             else:
@@ -3602,7 +3608,7 @@ if (
 
             if respuesta_grafica.status_code == 200:
 
-                print("- Gráfica WEBP Enviada Correctamente A Telegram\n")
+                print("- Gráfica WEBP Enviada Correctamente A Telegram.\n")
 
             else:
 
