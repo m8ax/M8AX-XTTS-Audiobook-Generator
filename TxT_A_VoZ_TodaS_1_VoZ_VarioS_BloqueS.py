@@ -61,6 +61,7 @@ from TTS.api import TTS
 from PIL import Image
 from PIL import ImageDraw
 import soundfile as _sf
+import re as _re
 import numpy as _np
 import subprocess
 import warnings
@@ -3094,6 +3095,8 @@ if usar_video:
 
     ultima_linea_ffmpeg = ""
 
+    _telegram_ffmpeg_ultimo_envio = time.time()
+
     while True:
         linea = res_video.stderr.readline()
 
@@ -3103,6 +3106,27 @@ if usar_video:
         if "frame=" in linea or "size=" in linea:
             ultima_linea_ffmpeg = linea.strip()
             print(f"\r{ultima_linea_ffmpeg}", end="", flush=True)
+            if time.time() - _telegram_ffmpeg_ultimo_envio >= 3600:
+                try:
+                    _m = _re.search(r'time=(\d+):(\d+):(\d+)', ultima_linea_ffmpeg)
+                    _me = _re.search(r'elapsed=(\d+):(\d+):(\d+)', ultima_linea_ffmpeg)
+                    if _m and _me:
+                        _seg_actual = int(_m.group(1))*3600 + int(_m.group(2))*60 + int(_m.group(3))
+                        _pct = min(100.0, _seg_actual / duracion_opus * 100) if duracion_opus > 0 else 0
+                        _elapsed = int(_me.group(1))*3600 + int(_me.group(2))*60 + int(_me.group(3))
+                        _eta_seg = (_elapsed / _pct) * (100 - _pct) if _pct > 0 else 0
+                        _eta = formatear_tiempo(max(0, _eta_seg))
+                    else:
+                        _pct = 0.0
+                        _eta = "?"
+                    requests.post(
+                        f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendMessage",
+                        data={"chat_id": CHAT_ID_TELEGRAM, "text": f"🎥 FFmpeg MP4 En Proceso...\n\n📊 {_pct:.2f}% | ETA ➤ {_eta} | Duración Total Del Video ➤ {formatear_tiempo(duracion_opus)}\n\n{ultima_linea_ffmpeg}"},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+                _telegram_ffmpeg_ultimo_envio = time.time()
         else:
             print(linea, end="", flush=True)
 
@@ -3595,13 +3619,13 @@ if (
             with open(nombre_grafica, "rb") as grafica:
 
                 respuesta_grafica = requests.post(
-                    f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendDocument",
+                    f"https://api.telegram.org/bot{TOKEN_TELEGRAM}/sendPhoto",
                     data={
                         "chat_id": CHAT_ID_TELEGRAM,
                         "caption": "📊 M8AX ➤ Gráficas PRO Del AudioLibro",
                     },
                     files={
-                        "document": grafica,
+                        "photo": grafica,
                     },
                     timeout=120,
                 )
