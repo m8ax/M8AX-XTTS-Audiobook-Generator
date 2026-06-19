@@ -3177,12 +3177,6 @@ if usar_video:
 
         print("\n- Error Generando El Vídeo MP4\n")
 
-    try:
-        zmq_sock.close()
-        zmq_ctx.term()
-    except:
-        pass
-
 try:
     if os.path.exists("M8AX_Filtro_Complejo.TxT"):
         os.remove("M8AX_Filtro_Complejo.TxT")
