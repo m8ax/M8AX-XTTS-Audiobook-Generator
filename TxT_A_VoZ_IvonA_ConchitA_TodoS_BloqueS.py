@@ -961,6 +961,19 @@ texto = texto.strip()
 
 texto = texto.translate(str.maketrans('', '', '()[]<>{}"\'“”‘’«»'))
 
+texto = (texto.replace("—¿", "¿")
+               .replace("—¡", "¡")
+               .replace("-¿", "¿")
+               .replace("-¡", "¡")
+               .replace("— ¿", " ¿")
+               .replace("— ¡", " ¡")
+               .replace("- ¿", " ¿")
+               .replace("- ¡", " ¡")
+               .replace("¡ ","¡")
+               .replace("¿ ","¿")
+               .replace(" !","!")
+               .replace(" ?","?"))
+
 if not texto:
     texto = (
         "El fichero de texto está vacío... "
