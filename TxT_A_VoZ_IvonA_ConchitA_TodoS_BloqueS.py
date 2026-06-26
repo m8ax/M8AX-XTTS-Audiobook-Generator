@@ -972,7 +972,14 @@ texto = (texto.replace("—¿", "¿")
                .replace("¡ ","¡")
                .replace("¿ ","¿")
                .replace(" !","!")
-               .replace(" ?","?"))
+               .replace(" ?","?")
+               .replace("!-","!")
+               .replace("?-","?")
+               .replace("…","...")
+               .replace(".- ",". ")
+               .replace(".-",". ")
+               .replace(".¿",". ¿")
+               .replace(".¡",". ¡"))
 
 if not texto:
     texto = (
